@@ -1717,10 +1717,10 @@ int modulePopulateReplicationInfoStructure(void *ri, int structver) {
     ri1->master = server.masterhost==NULL;
     ri1->masterhost = server.masterhost? server.masterhost: "";
     ri1->masterport = server.masterport;
-    ri1->replid1 = server.replid;
-    ri1->replid2 = server.replid2;
-    ri1->repl1_offset = server.master_repl_offset;
-    ri1->repl2_offset = server.second_replid_offset;
+    ri1->replid1 = server.replid_for_slave.replid;
+    ri1->replid2 = server.replid_for_slave.replid2;
+    ri1->repl1_offset = server.replid_for_slave.master_repl_offset;
+    ri1->repl2_offset = server.replid_for_slave.second_replid_offset;
     return REDISMODULE_OK;
 }
 

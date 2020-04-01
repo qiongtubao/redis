@@ -1215,7 +1215,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
 
     if (server.aof_state != AOF_OFF)
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
-    replicationFeedSlaves(server.slaves,db->id,argv,2);
+    replicationFeedSlaves(server.replid_for_slave, server.slaves,db->id,argv,2);
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);

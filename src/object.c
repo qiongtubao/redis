@@ -969,8 +969,8 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += server.initial_memory_usage;
 
     mem = 0;
-    if (server.repl_backlog)
-        mem += zmalloc_size(server.repl_backlog);
+    if (server.replid_for_slave.repl_backlog)
+        mem += zmalloc_size(server.replid_for_slave.repl_backlog);
     mh->repl_backlog = mem;
     mem_total += mem;
 

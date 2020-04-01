@@ -735,8 +735,8 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
         serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
-        changeReplicationId();
-        clearReplicationId2();
+        changeReplicationId(server.replid_for_slave);
+        clearReplicationId2(server.replid_for_slave);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"stringmatch-test") && c->argc == 2)
     {

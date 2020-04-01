@@ -82,7 +82,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "sha1.h"
 #include "endianconv.h"
 #include "crc64.h"
-
+#include "crdt/replid_info.h"
 /* Error codes */
 #define C_OK                    0
 #define C_ERR                   -1
@@ -1236,33 +1236,9 @@ struct redisServer {
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
-    int syslog_facility;            /* Syslog facility */
-    /* Replication (master) */
-    char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
-    char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
-    long long master_repl_offset;   /* My current replication offset */
-    long long master_repl_meaningful_offset; /* Offset minus latest PINGs. */
-    long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
-    int repl_ping_slave_period;     /* Master pings the slave every N seconds */
-    char *repl_backlog;             /* Replication backlog for partial syncs */
-    long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long repl_backlog_histlen; /* Backlog actual data length */
-    long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-                                       that is the next byte will'll write to.*/
-    long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer.*/
-    time_t repl_backlog_time_limit; /* Time without slaves after the backlog
-                                       gets released. */
-    time_t repl_no_slaves_since;    /* We have no slaves since that time.
-                                       Only valid if server.slaves len is 0. */
-    int repl_min_slaves_to_write;   /* Min number of slaves to write. */
-    int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
-    int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
-    int repl_diskless_sync;         /* Master send RDB to slaves sockets directly. */
-    int repl_diskless_load;         /* Slave parse RDB directly from the socket.
-                                     * see REPL_DISKLESS_LOAD_* enum */
-    int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
+    int syslog_facility;            /* Syslog facility */
+    
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */
     char *masterauth;               /* AUTH with this password with master */
@@ -1412,6 +1388,8 @@ struct redisServer {
     int tls_replication;
     int tls_auth_clients;
     redisTLSContextConfig tls_ctx_config;
+    replidInfo replid_for_slave;
+    replidInfo replid_for_peer;
 };
 
 typedef struct pubsubPattern {
@@ -1754,14 +1732,14 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
 /* Replication */
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
+void replicationFeedSlaves(replidInfo replid_info, list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
-void resizeReplicationBacklog(long long newsize);
+void resizeReplicationBacklog(replidInfo replid_info, long long newsize);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
@@ -1775,13 +1753,14 @@ int replicationCountAcksByOffset(long long offset);
 void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(client *c);
-long long getPsyncInitialOffset(void);
+long long getPsyncInitialOffset(replidInfo replid_info);
 int replicationSetupSlaveForFullResync(client *slave, long long offset);
-void changeReplicationId(void);
-void clearReplicationId2(void);
-void chopReplicationBacklog(void);
+//replication
+void changeReplicationId(replidInfo replid_info);
+void clearReplicationId2(replidInfo replid_info);
+void chopReplicationBacklog(replidInfo replid_info);
 void replicationCacheMasterUsingMyself(void);
-void feedReplicationBacklog(void *ptr, size_t len);
+void feedReplicationBacklog(replidInfo replid_info, void *ptr, size_t len);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
 

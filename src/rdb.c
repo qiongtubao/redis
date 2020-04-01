@@ -1094,9 +1094,9 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     if (rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
             == -1) return -1;
-        if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid)
+        if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid_for_slave.replid)
             == -1) return -1;
-        if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
+        if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.replid_for_slave.master_repl_offset)
             == -1) return -1;
     }
     if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
@@ -2419,7 +2419,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         client *slave = ln->value;
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
             server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
-            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
+            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset(server.replid_for_slave));
         }
     }
 
@@ -2555,7 +2555,7 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
      * connects to us, the NULL repl_backlog will trigger a full
      * synchronization, at the same time we will use a new replid and clear
      * replid2. */
-    if (!server.masterhost && server.repl_backlog) {
+    if (!server.masterhost && server.replid_for_slave.repl_backlog) {
         /* Note that when server.slaveseldb is -1, it means that this master
          * didn't apply any write commands after a full synchronization.
          * So we can let repl_stream_db be 0, this allows a restarted slave

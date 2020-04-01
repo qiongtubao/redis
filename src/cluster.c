@@ -2381,7 +2381,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     if (nodeIsSlave(myself))
         offset = replicationGetSlaveOffset();
     else
-        offset = server.master_repl_offset;
+        offset = server.replid_for_slave.master_repl_offset;
     hdr->offset = htonu64(offset);
 
     /* Set the message flags. */
@@ -3089,7 +3089,7 @@ void clusterHandleSlaveFailover(void) {
      * Check bypassed for manual failovers. */
     if (server.cluster_slave_validity_factor &&
         data_age >
-        (((mstime_t)server.repl_ping_slave_period * 1000) +
+        (((mstime_t)server.replid_for_slave.repl_ping_slave_period * 1000) +
          (server.cluster_node_timeout * server.cluster_slave_validity_factor)))
     {
         if (!manual_failover) {

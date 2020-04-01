@@ -1127,7 +1127,7 @@ void freeClient(client *c) {
          * attached slaves, as after some time we'll free the replication
          * backlog. */
         if (getClientType(c) == CLIENT_TYPE_SLAVE && listLength(server.slaves) == 0)
-            server.repl_no_slaves_since = server.unixtime;
+            server.replid_for_slave.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
         /* Fire the replica change modules event. */
         if (c->replstate == SLAVE_STATE_ONLINE)

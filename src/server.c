@@ -2119,7 +2119,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         argv[0] = createStringObject("REPLCONF",8);
         argv[1] = createStringObject("GETACK",6);
         argv[2] = createStringObject("*",1); /* Not used argument. */
-        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+        replicationFeedSlaves(server.replid_for_slave, server.slaves, server.slaveseldb, argv, 3);
         decrRefCount(argv[0]);
         decrRefCount(argv[1]);
         decrRefCount(argv[2]);
@@ -2289,8 +2289,8 @@ void initServerConfig(void) {
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
-    changeReplicationId();
-    clearReplicationId2();
+    changeReplicationId(server.replid_for_slave);
+    clearReplicationId2(server.replid_for_slave);
     server.hz = CONFIG_DEFAULT_HZ; /* Initialize it ASAP, even if it may get
                                       updated later after loading the config.
                                       This value may be used before the server
@@ -2354,15 +2354,15 @@ void initServerConfig(void) {
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
-    server.master_repl_offset = 0;
-    server.master_repl_meaningful_offset = 0;
+    server.replid_for_slave.master_repl_offset = 0;
+    server.replid_for_slave.master_repl_meaningful_offset = 0;
 
     /* Replication partial resync backlog */
-    server.repl_backlog = NULL;
-    server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
-    server.repl_backlog_off = 0;
-    server.repl_no_slaves_since = time(NULL);
+    server.replid_for_slave.repl_backlog = NULL;
+    server.replid_for_slave.repl_backlog_histlen = 0;
+    server.replid_for_slave.repl_backlog_idx = 0;
+    server.replid_for_slave.repl_backlog_off = 0;
+    server.replid_for_slave.repl_no_slaves_since = time(NULL);
 
     /* Client output buffer limits */
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)
@@ -2825,7 +2825,7 @@ void initServer(void) {
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
-    server.repl_good_slaves_count = 0;
+    server.replid_for_slave.repl_good_slaves_count = 0;
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
@@ -3091,7 +3091,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
-        replicationFeedSlaves(server.slaves,dbid,argv,argc);
+        replicationFeedSlaves(server.replid_for_slave,server.slaves,dbid,argv,argc);
 }
 
 /* Used inside commands to schedule the propagation of additional commands
@@ -3494,10 +3494,10 @@ int processCommand(client *c) {
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option. */
     if (server.masterhost == NULL &&
-        server.repl_min_slaves_to_write &&
-        server.repl_min_slaves_max_lag &&
+        server.replid_for_slave.repl_min_slaves_to_write &&
+        server.replid_for_slave.repl_min_slaves_max_lag &&
         c->cmd->flags & CMD_WRITE &&
-        server.repl_good_slaves_count < server.repl_min_slaves_to_write)
+        server.replid_for_slave.repl_good_slaves_count < server.replid_for_slave.repl_min_slaves_to_write)
     {
         flagTransaction(c);
         addReply(c, shared.noreplicaserr);
@@ -3583,7 +3583,7 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
+        c->woff = server.replid_for_slave.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
@@ -4346,11 +4346,11 @@ sds genRedisInfoString(const char *section) {
 
         /* If min-slaves-to-write is active, write the number of slaves
          * currently considered 'good'. */
-        if (server.repl_min_slaves_to_write &&
-            server.repl_min_slaves_max_lag) {
+        if (server.replid_for_slave.repl_min_slaves_to_write &&
+            server.replid_for_slave.repl_min_slaves_max_lag) {
             info = sdscatprintf(info,
                 "min_slaves_good_slaves:%d\r\n",
-                server.repl_good_slaves_count);
+                server.replid_for_slave.repl_good_slaves_count);
         }
 
         if (listLength(server.slaves)) {
@@ -4405,15 +4405,15 @@ sds genRedisInfoString(const char *section) {
             "repl_backlog_size:%lld\r\n"
             "repl_backlog_first_byte_offset:%lld\r\n"
             "repl_backlog_histlen:%lld\r\n",
-            server.replid,
-            server.replid2,
-            server.master_repl_offset,
-            server.master_repl_meaningful_offset,
-            server.second_replid_offset,
-            server.repl_backlog != NULL,
-            server.repl_backlog_size,
-            server.repl_backlog_off,
-            server.repl_backlog_histlen);
+            server.replid_for_slave.replid,
+            server.replid_for_slave.replid2,
+            server.replid_for_slave.master_repl_offset,
+            server.replid_for_slave.master_repl_meaningful_offset,
+            server.replid_for_slave.second_replid_offset,
+            server.replid_for_slave.repl_backlog != NULL,
+            server.replid_for_slave.repl_backlog_size,
+            server.replid_for_slave.repl_backlog_off,
+            server.replid_for_slave.repl_backlog_histlen);
     }
 
     /* CPU */
@@ -4784,9 +4784,9 @@ void loadDataFromDisk(void) {
                  * information in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1)
             {
-                memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
-                server.master_repl_offset = rsi.repl_offset;
-                server.master_repl_meaningful_offset = rsi.repl_offset;
+                memcpy(server.replid_for_slave.replid,rsi.repl_id,sizeof(server.replid_for_slave.replid));
+                server.replid_for_slave.master_repl_offset = rsi.repl_offset;
+                server.replid_for_slave.master_repl_meaningful_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
                  * information, in order to allow partial resynchronizations
                  * with masters. */
