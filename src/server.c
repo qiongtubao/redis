@@ -2354,14 +2354,14 @@ void initServerConfig(void) {
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
-    server.master_repl_offset = 0;
-    server.master_repl_meaningful_offset = 0;
+    server.replid_for_slave.master_repl_offset = 0;
+    server.replid_for_slave.master_repl_meaningful_offset = 0;
 
     /* Replication partial resync backlog */
-    server.repl_backlog = NULL;
-    server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
-    server.repl_backlog_off = 0;
+    server.replid_for_slave.repl_backlog = NULL;
+    server.replid_for_slave.repl_backlog_histlen = 0;
+    server.replid_for_slave.repl_backlog_idx = 0;
+    server.replid_for_slave.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
 
     /* Client output buffer limits */
@@ -3583,7 +3583,7 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
+        c->woff = server.replid_for_slave.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
@@ -4405,15 +4405,15 @@ sds genRedisInfoString(const char *section) {
             "repl_backlog_size:%lld\r\n"
             "repl_backlog_first_byte_offset:%lld\r\n"
             "repl_backlog_histlen:%lld\r\n",
-            server.replid,
-            server.replid2,
-            server.master_repl_offset,
-            server.master_repl_meaningful_offset,
-            server.second_replid_offset,
-            server.repl_backlog != NULL,
-            server.repl_backlog_size,
-            server.repl_backlog_off,
-            server.repl_backlog_histlen);
+            server.replid_for_slave.replid,
+            server.replid_for_slave.replid2,
+            server.replid_for_slave.master_repl_offset,
+            server.replid_for_slave.master_repl_meaningful_offset,
+            server.replid_for_slave.second_replid_offset,
+            server.replid_for_slave.repl_backlog != NULL,
+            server.replid_for_slave.repl_backlog_size,
+            server.replid_for_slave.repl_backlog_off,
+            server.replid_for_slave.repl_backlog_histlen);
     }
 
     /* CPU */
@@ -4784,9 +4784,9 @@ void loadDataFromDisk(void) {
                  * information in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1)
             {
-                memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
-                server.master_repl_offset = rsi.repl_offset;
-                server.master_repl_meaningful_offset = rsi.repl_offset;
+                memcpy(server.replid_for_slave.replid,rsi.repl_id,sizeof(server.replid_for_slave.replid));
+                server.replid_for_slave.master_repl_offset = rsi.repl_offset;
+                server.replid_for_slave.master_repl_meaningful_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
                  * information, in order to allow partial resynchronizations
                  * with masters. */

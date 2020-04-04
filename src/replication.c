@@ -110,15 +110,15 @@ int bg_unlink(const char *filename) {
 /* ---------------------------------- MASTER -------------------------------- */
 
 void createReplicationBacklog(void) {
-    serverAssert(server.repl_backlog == NULL);
-    server.repl_backlog = zmalloc(server.repl_backlog_size);
-    server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
+    serverAssert(server.replid_for_slave.repl_backlog == NULL);
+    server.replid_for_slave.repl_backlog = zmalloc(server.replid_for_slave.repl_backlog_size);
+    server.replid_for_slave.repl_backlog_histlen = 0;
+    server.replid_for_slave.repl_backlog_idx = 0;
 
     /* We don't have any data inside our buffer, but virtually the first
      * byte we have is the next byte that will be generated for the
      * replication stream. */
-    server.repl_backlog_off = server.master_repl_offset+1;
+    server.replid_for_slave.repl_backlog_off = server.replid_for_slave.master_repl_offset+1;
 }
 
 /* This function is called when the user modifies the replication backlog
@@ -130,63 +130,63 @@ void createReplicationBacklog(void) {
 void resizeReplicationBacklog(long long newsize) {
     if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
         newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
-    if (server.repl_backlog_size == newsize) return;
+    if (server.replid_for_slave.repl_backlog_size == newsize) return;
 
-    server.repl_backlog_size = newsize;
-    if (server.repl_backlog != NULL) {
+    server.replid_for_slave.repl_backlog_size = newsize;
+    if (server.replid_for_slave.repl_backlog != NULL) {
         /* What we actually do is to flush the old buffer and realloc a new
          * empty one. It will refill with new data incrementally.
          * The reason is that copying a few gigabytes adds latency and even
          * worse often we need to alloc additional space before freeing the
          * old buffer. */
-        zfree(server.repl_backlog);
-        server.repl_backlog = zmalloc(server.repl_backlog_size);
-        server.repl_backlog_histlen = 0;
-        server.repl_backlog_idx = 0;
+        zfree(server.replid_for_slave.repl_backlog);
+        server.replid_for_slave.repl_backlog = zmalloc(server.replid_for_slave.repl_backlog_size);
+        server.replid_for_slave.repl_backlog_histlen = 0;
+        server.replid_for_slave.repl_backlog_idx = 0;
         /* Next byte we have is... the next since the buffer is empty. */
-        server.repl_backlog_off = server.master_repl_offset+1;
+        server.replid_for_slave.repl_backlog_off = server.replid_for_slave.master_repl_offset+1;
     }
 }
 
 void freeReplicationBacklog(void) {
     serverAssert(listLength(server.slaves) == 0);
-    zfree(server.repl_backlog);
-    server.repl_backlog = NULL;
+    zfree(server.replid_for_slave.repl_backlog);
+    server.replid_for_slave.repl_backlog = NULL;
 }
 
 /* Add data to the replication backlog.
  * This function also increments the global replication offset stored at
  * server.master_repl_offset, because there is no case where we want to feed
  * the backlog without incrementing the offset. */
-void feedReplicationBacklog(void *ptr, size_t len) {
+void feedReplicationBacklog(replidInfo* replid_info, void *ptr, size_t len) {
     unsigned char *p = ptr;
 
-    server.master_repl_offset += len;
-    server.master_repl_meaningful_offset = server.master_repl_offset;
+    replid_info->master_repl_offset += len;
+    replid_info->master_repl_meaningful_offset = replid_info->master_repl_offset;
 
     /* This is a circular buffer, so write as much data we can at every
      * iteration and rewind the "idx" index if we reach the limit. */
     while(len) {
-        size_t thislen = server.repl_backlog_size - server.repl_backlog_idx;
+        size_t thislen = replid_info->repl_backlog_size - replid_info->repl_backlog_idx;
         if (thislen > len) thislen = len;
-        memcpy(server.repl_backlog+server.repl_backlog_idx,p,thislen);
-        server.repl_backlog_idx += thislen;
-        if (server.repl_backlog_idx == server.repl_backlog_size)
-            server.repl_backlog_idx = 0;
+        memcpy(replid_info->repl_backlog+replid_info->repl_backlog_idx,p,thislen);
+        replid_info->repl_backlog_idx += thislen;
+        if (replid_info->repl_backlog_idx == replid_info->repl_backlog_size)
+            replid_info->repl_backlog_idx = 0;
         len -= thislen;
         p += thislen;
-        server.repl_backlog_histlen += thislen;
+        replid_info->repl_backlog_histlen += thislen;
     }
-    if (server.repl_backlog_histlen > server.repl_backlog_size)
-        server.repl_backlog_histlen = server.repl_backlog_size;
+    if (replid_info->repl_backlog_histlen > replid_info->repl_backlog_size)
+        replid_info->repl_backlog_histlen = replid_info->repl_backlog_size;
     /* Set the offset of the first byte we have in the backlog. */
-    server.repl_backlog_off = server.master_repl_offset -
-                              server.repl_backlog_histlen + 1;
+    replid_info->repl_backlog_off = replid_info->master_repl_offset -
+                              replid_info->repl_backlog_histlen + 1;
 }
 
 /* Wrapper for feedReplicationBacklog() that takes Redis string objects
  * as input. */
-void feedReplicationBacklogWithObject(robj *o) {
+void feedReplicationBacklogWithObject(replidInfo* replid_info,robj *o) {
     char llstr[LONG_STR_SIZE];
     void *p;
     size_t len;
@@ -198,7 +198,7 @@ void feedReplicationBacklogWithObject(robj *o) {
         len = sdslen(o->ptr);
         p = o->ptr;
     }
-    feedReplicationBacklog(p,len);
+    feedReplicationBacklog(replid_info,p,len);
 }
 
 /* Propagate write commands to slaves, and populate the replication backlog
@@ -221,10 +221,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
-    if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
+    if (server.replid_for_slave.repl_backlog == NULL && listLength(slaves) == 0) return;
 
     /* We can't have slaves attached and no backlog. */
-    serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
+    serverAssert(!(listLength(slaves) != 0 && server.replid_for_slave.repl_backlog == NULL));
 
     /* Send SELECT command to every slave if needed. */
     if (server.slaveseldb != dictid) {
@@ -244,7 +244,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         /* Add the SELECT command into the backlog. */
-        if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
+        if (server.replid_for_slave.repl_backlog) feedReplicationBacklogWithObject(&server.replid_for_slave,selectcmd);
 
         /* Send it to slaves. */
         listRewind(slaves,&li);
@@ -260,7 +260,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     server.slaveseldb = dictid;
 
     /* Write the command to the replication backlog if any. */
-    if (server.repl_backlog) {
+    if (server.replid_for_slave.repl_backlog) {
         char aux[LONG_STR_SIZE+3];
 
         /* Add the multi bulk reply length. */
@@ -268,7 +268,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         len = ll2string(aux+1,sizeof(aux)-1,argc);
         aux[len+1] = '\r';
         aux[len+2] = '\n';
-        feedReplicationBacklog(aux,len+3);
+        feedReplicationBacklog(&server.replid_for_slave,aux,len+3);
 
         for (j = 0; j < argc; j++) {
             long objlen = stringObjectLen(argv[j]);
@@ -280,9 +280,9 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             len = ll2string(aux+1,sizeof(aux)-1,objlen);
             aux[len+1] = '\r';
             aux[len+2] = '\n';
-            feedReplicationBacklog(aux,len+3);
-            feedReplicationBacklogWithObject(argv[j]);
-            feedReplicationBacklog(aux+len+1,2);
+            feedReplicationBacklog(&server.replid_for_slave, aux,len+3);
+            feedReplicationBacklogWithObject(&server.replid_for_slave, argv[j]);
+            feedReplicationBacklog(&server.replid_for_slave,aux+len+1,2);
         }
     }
 
@@ -325,7 +325,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
         printf("\n");
     }
 
-    if (server.repl_backlog) feedReplicationBacklog(buf,buflen);
+    if (server.replid_for_slave.repl_backlog) feedReplicationBacklog(&server.replid_for_slave,buf,buflen);
     listRewind(slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
@@ -382,49 +382,49 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
 
     serverLog(LL_DEBUG, "[PSYNC] Replica request offset: %lld", offset);
 
-    if (server.repl_backlog_histlen == 0) {
+    if (server.replid_for_slave.repl_backlog_histlen == 0) {
         serverLog(LL_DEBUG, "[PSYNC] Backlog history len is zero");
         return 0;
     }
 
     serverLog(LL_DEBUG, "[PSYNC] Backlog size: %lld",
-             server.repl_backlog_size);
+             server.replid_for_slave.repl_backlog_size);
     serverLog(LL_DEBUG, "[PSYNC] First byte: %lld",
-             server.repl_backlog_off);
+             server.replid_for_slave.repl_backlog_off);
     serverLog(LL_DEBUG, "[PSYNC] History len: %lld",
-             server.repl_backlog_histlen);
+             server.replid_for_slave.repl_backlog_histlen);
     serverLog(LL_DEBUG, "[PSYNC] Current index: %lld",
-             server.repl_backlog_idx);
+             server.replid_for_slave.repl_backlog_idx);
 
     /* Compute the amount of bytes we need to discard. */
-    skip = offset - server.repl_backlog_off;
+    skip = offset - server.replid_for_slave.repl_backlog_off;
     serverLog(LL_DEBUG, "[PSYNC] Skipping: %lld", skip);
 
     /* Point j to the oldest byte, that is actually our
      * server.repl_backlog_off byte. */
-    j = (server.repl_backlog_idx +
-        (server.repl_backlog_size-server.repl_backlog_histlen)) %
-        server.repl_backlog_size;
+    j = (server.replid_for_slave.repl_backlog_idx +
+        (server.replid_for_slave.repl_backlog_size-server.replid_for_slave.repl_backlog_histlen)) %
+        server.replid_for_slave.repl_backlog_size;
     serverLog(LL_DEBUG, "[PSYNC] Index of first byte: %lld", j);
 
     /* Discard the amount of data to seek to the specified 'offset'. */
-    j = (j + skip) % server.repl_backlog_size;
+    j = (j + skip) % server.replid_for_slave.repl_backlog_size;
 
     /* Feed slave with data. Since it is a circular buffer we have to
      * split the reply in two parts if we are cross-boundary. */
-    len = server.repl_backlog_histlen - skip;
+    len = server.replid_for_slave.repl_backlog_histlen - skip;
     serverLog(LL_DEBUG, "[PSYNC] Reply total length: %lld", len);
     while(len) {
         long long thislen =
-            ((server.repl_backlog_size - j) < len) ?
-            (server.repl_backlog_size - j) : len;
+            ((server.replid_for_slave.repl_backlog_size - j) < len) ?
+            (server.replid_for_slave.repl_backlog_size - j) : len;
 
         serverLog(LL_DEBUG, "[PSYNC] addReply() length: %lld", thislen);
-        addReplySds(c,sdsnewlen(server.repl_backlog + j, thislen));
+        addReplySds(c,sdsnewlen(server.replid_for_slave.repl_backlog + j, thislen));
         len -= thislen;
         j = 0;
     }
-    return server.repl_backlog_histlen - skip;
+    return server.replid_for_slave.repl_backlog_histlen - skip;
 }
 
 /* Return the offset to provide as reply to the PSYNC command received
@@ -432,7 +432,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
  * the BGSAVE process started and before executing any other command
  * from clients. */
 long long getPsyncInitialOffset(void) {
-    return server.master_repl_offset;
+    return server.replid_for_slave.master_repl_offset;
 }
 
 /* Send a FULLRESYNC reply in the specific case of a full resynchronization,
@@ -466,7 +466,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
      * the old SYNC command. */
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
         buflen = snprintf(buf,sizeof(buf),"+FULLRESYNC %s %lld\r\n",
-                          server.replid,offset);
+                          server.replid_for_slave.replid,offset);
         if (connWrite(slave->conn,buf,buflen) != buflen) {
             freeClientAsync(slave);
             return C_ERR;
@@ -498,23 +498,23 @@ int masterTryPartialResynchronization(client *c) {
      *
      * Note that there are two potentially valid replication IDs: the ID1
      * and the ID2. The ID2 however is only valid up to a specific offset. */
-    if (strcasecmp(master_replid, server.replid) &&
-        (strcasecmp(master_replid, server.replid2) ||
-         psync_offset > server.second_replid_offset))
+    if (strcasecmp(master_replid, server.replid_for_slave.replid) &&
+        (strcasecmp(master_replid, server.replid_for_slave.replid2) ||
+         psync_offset > server.replid_for_slave.second_replid_offset))
     {
         /* Run id "?" is used by slaves that want to force a full resync. */
         if (master_replid[0] != '?') {
-            if (strcasecmp(master_replid, server.replid) &&
-                strcasecmp(master_replid, server.replid2))
+            if (strcasecmp(master_replid, server.replid_for_slave.replid) &&
+                strcasecmp(master_replid, server.replid_for_slave.replid2))
             {
                 serverLog(LL_NOTICE,"Partial resynchronization not accepted: "
                     "Replication ID mismatch (Replica asked for '%s', my "
                     "replication IDs are '%s' and '%s')",
-                    master_replid, server.replid, server.replid2);
+                    master_replid, server.replid_for_slave.replid, server.replid_for_slave.replid2);
             } else {
                 serverLog(LL_NOTICE,"Partial resynchronization not accepted: "
                     "Requested offset for second ID was %lld, but I can reply "
-                    "up to %lld", psync_offset, server.second_replid_offset);
+                    "up to %lld", psync_offset, server.replid_for_slave.second_replid_offset);
             }
         } else {
             serverLog(LL_NOTICE,"Full resync requested by replica %s",
@@ -524,13 +524,13 @@ int masterTryPartialResynchronization(client *c) {
     }
 
     /* We still have the data our slave is asking for? */
-    if (!server.repl_backlog ||
-        psync_offset < server.repl_backlog_off ||
-        psync_offset > (server.repl_backlog_off + server.repl_backlog_histlen))
+    if (!server.replid_for_slave.repl_backlog ||
+        psync_offset < server.replid_for_slave.repl_backlog_off ||
+        psync_offset > (server.replid_for_slave.repl_backlog_off + server.replid_for_slave.repl_backlog_histlen))
     {
         serverLog(LL_NOTICE,
             "Unable to partial resync with replica %s for lack of backlog (Replica request was: %lld).", replicationGetSlaveName(c), psync_offset);
-        if (psync_offset > server.master_repl_offset) {
+        if (psync_offset > server.replid_for_slave.master_repl_offset) {
             serverLog(LL_WARNING,
                 "Warning: replica %s tried to PSYNC with an offset that is greater than the master replication offset.", replicationGetSlaveName(c));
         }
@@ -550,7 +550,7 @@ int masterTryPartialResynchronization(client *c) {
      * new commands at this stage. But we are sure the socket send buffer is
      * empty so this write will never fail actually. */
     if (c->slave_capa & SLAVE_CAPA_PSYNC2) {
-        buflen = snprintf(buf,sizeof(buf),"+CONTINUE %s\r\n", server.replid);
+        buflen = snprintf(buf,sizeof(buf),"+CONTINUE %s\r\n", server.replid_for_slave.replid);
     } else {
         buflen = snprintf(buf,sizeof(buf),"+CONTINUE\r\n");
     }
@@ -740,7 +740,7 @@ void syncCommand(client *c) {
     listAddNodeTail(server.slaves,c);
 
     /* Create the replication backlog if needed. */
-    if (listLength(server.slaves) == 1 && server.repl_backlog == NULL) {
+    if (listLength(server.slaves) == 1 && server.replid_for_slave.repl_backlog == NULL) {
         /* When we create the backlog from scratch, we always use a new
          * replication ID and clear the ID2, since there is no valid
          * past history. */
@@ -1275,17 +1275,17 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
  * slaves, so the command should be called when something happens that
  * alters the current story of the dataset. */
 void changeReplicationId(void) {
-    getRandomHexChars(server.replid,CONFIG_RUN_ID_SIZE);
-    server.replid[CONFIG_RUN_ID_SIZE] = '\0';
+    getRandomHexChars(server.replid_for_slave.replid,CONFIG_RUN_ID_SIZE);
+    server.replid_for_slave.replid[CONFIG_RUN_ID_SIZE] = '\0';
 }
 
 /* Clear (invalidate) the secondary replication ID. This happens, for
  * example, after a full resynchronization, when we start a new replication
  * history. */
 void clearReplicationId2(void) {
-    memset(server.replid2,'0',sizeof(server.replid));
-    server.replid2[CONFIG_RUN_ID_SIZE] = '\0';
-    server.second_replid_offset = -1;
+    memset(server.replid_for_slave.replid2,'0',sizeof(server.replid_for_slave.replid));
+    server.replid_for_slave.replid2[CONFIG_RUN_ID_SIZE] = '\0';
+    server.replid_for_slave.second_replid_offset = -1;
 }
 
 /* Use the current replication ID / offset as secondary replication
@@ -1294,7 +1294,7 @@ void clearReplicationId2(void) {
  * so that it can serve PSYNC requests performed using the master
  * replication ID. */
 void shiftReplicationId(void) {
-    memcpy(server.replid2,server.replid,sizeof(server.replid));
+    memcpy(server.replid_for_slave.replid2,server.replid_for_slave.replid,sizeof(server.replid_for_slave.replid));
     /* We set the second replid offset to the master offset + 1, since
      * the slave will ask for the first byte it has not yet received, so
      * we need to add one to the offset: for example if, as a slave, we are
@@ -1302,9 +1302,9 @@ void shiftReplicationId(void) {
      * are turned into a master, we can accept a PSYNC request with offset
      * 51, since the slave asking has the same history up to the 50th
      * byte, and is asking for the new bytes starting at offset 51. */
-    server.second_replid_offset = server.master_repl_offset+1;
+    server.replid_for_slave.second_replid_offset = server.replid_for_slave.master_repl_offset+1;
     changeReplicationId();
-    serverLog(LL_WARNING,"Setting secondary replication ID to %s, valid up to offset: %lld. New replication ID is %s", server.replid2, server.second_replid_offset, server.replid);
+    serverLog(LL_WARNING,"Setting secondary replication ID to %s, valid up to offset: %lld. New replication ID is %s", server.replid_for_slave.replid2, server.replid_for_slave.second_replid_offset, server.replid_for_slave.replid);
 }
 
 /* ----------------------------------- SLAVE -------------------------------- */
@@ -1767,16 +1767,16 @@ void readSyncBulkPayload(connection *conn) {
     /* After a full resynchroniziation we use the replication ID and
      * offset of the master. The secondary ID / offset are cleared since
      * we are starting a new history. */
-    memcpy(server.replid,server.master->replid,sizeof(server.replid));
-    server.master_repl_offset = server.master->reploff;
-    server.master_repl_meaningful_offset = server.master->reploff;
+    memcpy(server.replid_for_slave.replid,server.master->replid,sizeof(server.replid_for_slave.replid));
+    server.replid_for_slave.master_repl_offset = server.master->reploff;
+    server.replid_for_slave.master_repl_meaningful_offset = server.master->reploff;
     clearReplicationId2();
 
     /* Let's create the replication backlog if needed. Slaves need to
      * accumulate the backlog regardless of the fact they have sub-slaves
      * or not, in order to behave correctly if they are promoted to
      * masters after a failover. */
-    if (server.repl_backlog == NULL) createReplicationBacklog();
+    if (server.replid_for_slave.repl_backlog == NULL) createReplicationBacklog();
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
 
     if (server.supervised_mode == SUPERVISED_SYSTEMD) {
@@ -2014,14 +2014,14 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                 serverLog(LL_WARNING,"Master replication ID changed to %s",new);
 
                 /* Set the old ID as our ID2, up to the current offset+1. */
-                memcpy(server.replid2,server.cached_master->replid,
-                    sizeof(server.replid2));
-                server.second_replid_offset = server.master_repl_offset+1;
+                memcpy(server.replid_for_slave.replid2,server.cached_master->replid,
+                    sizeof(server.replid_for_slave.replid2));
+                server.replid_for_slave.second_replid_offset = server.replid_for_slave.master_repl_offset+1;
 
                 /* Update the cached master ID and our own primary ID to the
                  * new one. */
-                memcpy(server.replid,new,sizeof(server.replid));
-                memcpy(server.cached_master->replid,new,sizeof(server.replid));
+                memcpy(server.replid_for_slave.replid,new,sizeof(server.replid_for_slave.replid));
+                memcpy(server.cached_master->replid,new,sizeof(server.replid_for_slave.replid));
 
                 /* Disconnect all the sub-slaves: they need to be notified. */
                 disconnectSlaves();
@@ -2035,7 +2035,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         /* If this instance was restarted and we read the metadata to
          * PSYNC from the persistence file, our replication backlog could
          * be still not initialized. Create it. */
-        if (server.repl_backlog == NULL) createReplicationBacklog();
+        if (server.replid_for_slave.repl_backlog == NULL) createReplicationBacklog();
         return PSYNC_CONTINUE;
     }
 
@@ -2600,7 +2600,7 @@ void roleCommand(client *c) {
 
         addReplyArrayLen(c,3);
         addReplyBulkCBuffer(c,"master",6);
-        addReplyLongLong(c,server.master_repl_offset);
+        addReplyLongLong(c,server.replid_for_slave.master_repl_offset);
         mbcount = addReplyDeferredLen(c);
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
@@ -2736,7 +2736,7 @@ void replicationCacheMasterUsingMyself(void) {
      * by replicationCreateMasterClient(). We'll later set the created
      * master as server.cached_master, so the replica will use such
      * offset for PSYNC. */
-    server.master_initial_offset = server.master_repl_offset;
+    server.master_initial_offset = server.replid_for_slave.master_repl_offset;
 
     /* However if the "meaningful" offset, that is the offset without
      * the final PINGs in the stream, is different, use this instead:
@@ -2744,18 +2744,18 @@ void replicationCacheMasterUsingMyself(void) {
      * receive the PINGs, however the master will end with an incremented
      * offset because of the PINGs and will not be able to incrementally
      * PSYNC with the new master. */
-    if (server.master_repl_offset > server.master_repl_meaningful_offset) {
-        long long delta = server.master_repl_offset -
-                          server.master_repl_meaningful_offset;
+    if (server.replid_for_slave.master_repl_offset > server.replid_for_slave.master_repl_meaningful_offset) {
+        long long delta = server.replid_for_slave.master_repl_offset -
+                          server.replid_for_slave.master_repl_meaningful_offset;
         serverLog(LL_NOTICE,
             "Using the meaningful offset %lld instead of %lld to exclude "
             "the final PINGs (%lld bytes difference)",
-                server.master_repl_meaningful_offset,
-                server.master_repl_offset,
+                server.replid_for_slave.master_repl_meaningful_offset,
+                server.replid_for_slave.master_repl_offset,
                 delta);
-        server.master_initial_offset = server.master_repl_meaningful_offset;
-        server.repl_backlog_histlen -= delta;
-        if (server.repl_backlog_histlen < 0) server.repl_backlog_histlen = 0;
+        server.master_initial_offset = server.replid_for_slave.master_repl_meaningful_offset;
+        server.replid_for_slave.repl_backlog_histlen -= delta;
+        if (server.replid_for_slave.repl_backlog_histlen < 0) server.replid_for_slave.repl_backlog_histlen = 0;
     }
 
     /* The master client we create can be set to any DBID, because
@@ -2763,7 +2763,7 @@ void replicationCacheMasterUsingMyself(void) {
     replicationCreateMasterClient(NULL,-1);
 
     /* Use our own ID / offset. */
-    memcpy(server.master->replid, server.replid, sizeof(server.replid));
+    memcpy(server.master->replid, server.replid_for_slave.replid, sizeof(server.replid_for_slave.replid));
 
     /* Set as cached master. */
     unlinkClient(server.master);
@@ -3148,7 +3148,7 @@ void replicationCron(void) {
             clientsArePaused();
 
         if (!manual_failover_in_progress) {
-            long long before_ping = server.master_repl_meaningful_offset;
+            long long before_ping = server.replid_for_slave.master_repl_meaningful_offset;
             ping_argv[0] = createStringObject("PING",4);
             replicationFeedSlaves(server.slaves, server.slaveseldb,
                 ping_argv, 1);
@@ -3159,7 +3159,7 @@ void replicationCron(void) {
              * when the master is turned into a replica. Otherwise pending
              * PINGs may not allow it to perform an incremental sync with the
              * new master. */
-            server.master_repl_meaningful_offset = before_ping;
+            server.replid_for_slave.master_repl_meaningful_offset = before_ping;
         }
     }
 
@@ -3218,7 +3218,7 @@ void replicationCron(void) {
      * backlog, in order to reply to PSYNC queries if they are turned into
      * masters after a failover. */
     if (listLength(server.slaves) == 0 && server.repl_backlog_time_limit &&
-        server.repl_backlog && server.masterhost == NULL)
+        server.replid_for_slave.repl_backlog && server.masterhost == NULL)
     {
         time_t idle = server.unixtime - server.repl_no_slaves_since;
 

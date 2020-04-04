@@ -213,9 +213,9 @@ void execCommand(client *c) {
          * initial MULTI was propagated into the replication backlog, but the
          * rest was not. We need to make sure to at least terminate the
          * backlog with the final EXEC. */
-        if (server.repl_backlog && was_master && !is_master) {
+        if (server.replid_for_slave.repl_backlog && was_master && !is_master) {
             char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
-            feedReplicationBacklog(execcmd,strlen(execcmd));
+            feedReplicationBacklog(&server.replid_for_slave,execcmd,strlen(execcmd));
         }
     }
 

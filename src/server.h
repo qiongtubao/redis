@@ -1011,6 +1011,23 @@ struct clusterState;
 #define CHILD_INFO_TYPE_AOF 1
 #define CHILD_INFO_TYPE_MODULE 3
 
+typedef struct replidInfo {
+    /* Replication (master) */
+    char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
+    char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
+    long long master_repl_offset;   /* My current replication offset */
+    long long master_repl_meaningful_offset; /* Offset minus latest PINGs. */
+    long long repl_backlog_size;    /* Backlog circular buffer size */
+    long long repl_backlog_idx;     /* Backlog circular buffer current offset,
+                                       that is the next byte will'll write to.*/
+    char *repl_backlog;             /* Replication backlog for partial syncs */
+    long long repl_backlog_histlen; /* Backlog actual data length */
+    long long repl_backlog_off;     /* Replication "master offset" of first
+                                       byte in the replication backlog buffer.*/
+    long long second_replid_offset; /* Accept offsets up to this for replid2. */
+    
+} replidInfo;
+
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -1238,20 +1255,10 @@ struct redisServer {
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */
     /* Replication (master) */
-    char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
-    char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
-    long long master_repl_offset;   /* My current replication offset */
-    long long master_repl_meaningful_offset; /* Offset minus latest PINGs. */
-    long long second_replid_offset; /* Accept offsets up to this for replid2. */
+    replidInfo replid_for_slave;
+
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
-    char *repl_backlog;             /* Replication backlog for partial syncs */
-    long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long repl_backlog_histlen; /* Backlog actual data length */
-    long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-                                       that is the next byte will'll write to.*/
-    long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer.*/
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
@@ -1781,7 +1788,7 @@ void changeReplicationId(void);
 void clearReplicationId2(void);
 void chopReplicationBacklog(void);
 void replicationCacheMasterUsingMyself(void);
-void feedReplicationBacklog(void *ptr, size_t len);
+void feedReplicationBacklog(replidInfo* replid_info,void *ptr, size_t len);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
 
