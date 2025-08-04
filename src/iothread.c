@@ -406,55 +406,55 @@ static inline void sendPendingClientsToIOThreadIfNeeded(IOThread *t, int size_ch
  * when processing script command, it may call processEventsWhileBlocked to
  * process new events, if the clients with fired events from the same io thread,
  * it may call this function reentrantly. */
-int processClientsFromIOThread(IOThread *t) {
+int processClientsFromIOThread(IOThread *t) {                                       //由主线程处理来自 I/O 线程提交的客户端请求
     /* Get the list of clients to process. */
     pthread_mutex_lock(&mainThreadPendingClientsMutexes[t->id]);
-    listJoin(mainThreadProcessingClients[t->id], mainThreadPendingClients[t->id]);
+    listJoin(mainThreadProcessingClients[t->id], mainThreadPendingClients[t->id]);  //listJoin(a,b) => a += b ; b = 0; 获取待处理客户端列表
     pthread_mutex_unlock(&mainThreadPendingClientsMutexes[t->id]);
-    size_t processed = listLength(mainThreadProcessingClients[t->id]);
+    size_t processed = listLength(mainThreadProcessingClients[t->id]);              //判断是否有客户端需要处理
     if (processed == 0) return 0;
 
     int prefetch_clients = 0;
     /* We may call processClientsFromIOThread reentrantly, so we need to
      * reset the prefetching batch, besides, users may change the config
      * of prefetch batch size, so we need to reset the prefetching batch. */
-    resetCommandsBatch();
+    resetCommandsBatch();                                                           //重置命令预取批次（Prefetching）
 
     listNode *node = NULL;
-    while (listLength(mainThreadProcessingClients[t->id])) {
+    while (listLength(mainThreadProcessingClients[t->id])) {                        //循环处理每个客户端
         /* Prefetch the commands if no clients in the batch. */
-        if (prefetch_clients <= 0) prefetch_clients = prefetchIOThreadCommands(t);
+        if (prefetch_clients <= 0) prefetch_clients = prefetchIOThreadCommands(t);  //命令预取优化（Prefetching）   
         /* Reset the prefetching batch if we have processed all clients. */
         if (--prefetch_clients <= 0) resetCommandsBatch();
 
         /* Each time we pop up only the first client to process to guarantee
          * reentrancy safety. */
         if (node) zfree(node);
-        node = listFirst(mainThreadProcessingClients[t->id]);
-        listUnlinkNode(mainThreadProcessingClients[t->id], node);
+        node = listFirst(mainThreadProcessingClients[t->id]);                       //取出第一个客户端
+        listUnlinkNode(mainThreadProcessingClients[t->id], node);                   
         client *c = listNodeValue(node);
 
         /* Make sure the client is neither readable nor writable in io thread to
          * avoid data race. */
-        serverAssert(!(c->io_flags & (CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED)));
-        serverAssert(!(c->flags & CLIENT_CLOSE_ASAP));
+        serverAssert(!(c->io_flags & (CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED)));  //确保该客户端当前不在 I/O 线程中被读写，避免数据竞争。
+        serverAssert(!(c->flags & CLIENT_CLOSE_ASAP));                                      //确保客户端没有被标记为立即关闭。
 
         /* Let main thread to run it, set running thread id first. */
-        c->running_tid = IOTHREAD_MAIN_THREAD_ID;
+        c->running_tid = IOTHREAD_MAIN_THREAD_ID;                                           //标记当前客户端正在由主线程处理。
 
         /* If a read error occurs, handle it in the main thread first, since we
          * want to print logs about client information before freeing. */
-        if (c->read_error) handleClientReadError(c);
+        if (c->read_error) handleClientReadError(c);                                        //处理读取失败
 
         /* The client is asked to close in IO thread. */
-        if (c->io_flags & CLIENT_IO_CLOSE_ASAP) {
+        if (c->io_flags & CLIENT_IO_CLOSE_ASAP) {                                           //处理需要关闭的客户端 可能是读取失败引发的
             freeClient(c);
             continue;
         }
 
         /* Run cron task for the client per second or it is marked as pending cron. */
         if (c->last_cron_check_time + 1000 <= server.mstime ||
-            c->io_flags & CLIENT_IO_PENDING_CRON)
+            c->io_flags & CLIENT_IO_PENDING_CRON)                                           //处理定时任务 每秒执行一次客户端相关的定时任务（如内存统计、超时检查等）。
         {
             c->last_cron_check_time = server.mstime;
             if (clientsCronRunClient(c)) continue;
@@ -465,7 +465,7 @@ int processClientsFromIOThread(IOThread *t) {
         }
 
         /* Process the pending command and input buffer. */
-        if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
+        if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {                //处理待执行的命令
             c->flags |= CLIENT_PENDING_COMMAND;
             if (processPendingCommandAndInputBuffer(c) == C_ERR) {
                 /* If the client is no longer valid, it must be freed safely. */
@@ -477,12 +477,12 @@ int processClientsFromIOThread(IOThread *t) {
          * reply to client, so we did not put the client in pending write
          * queue. And we should do that first since we may keep the client
          * in main thread instead of returning to io threads. */
-        if (!(c->flags & CLIENT_PENDING_WRITE) && clientHasPendingReplies(c))
+        if (!(c->flags & CLIENT_PENDING_WRITE) && clientHasPendingReplies(c))           //待发送的回复
             putClientInPendingWriteQueue(c);
 
         /* The client only can be processed in the main thread, otherwise data
          * race will happen, since we may touch client's data in main thread. */
-        if (isClientMustHandledByMainThread(c)) {
+        if (isClientMustHandledByMainThread(c)) {                                       //是否必须主线程执行  某些特殊客户端（如监听模式、发布订阅）必须由主线程长期持有，不能返回给 I/O 线程。
             keepClientInMainThread(c);
             continue;
         }
@@ -490,22 +490,22 @@ int processClientsFromIOThread(IOThread *t) {
         /* Remove this client from pending write clients queue of main thread,
          * And some clients may do not have reply if CLIENT REPLY OFF/SKIP. */
         if (c->flags & CLIENT_PENDING_WRITE) {
-            c->flags &= ~CLIENT_PENDING_WRITE;
+            c->flags &= ~CLIENT_PENDING_WRITE;                                              //清除待写状态
             listUnlinkNode(server.clients_pending_write, &c->clients_pending_write_node);
         }
         c->running_tid = c->tid;
-        listLinkNodeHead(mainThreadPendingClientsToIOThreads[c->tid], node);
+        listLinkNodeHead(mainThreadPendingClientsToIOThreads[c->tid], node);                //将客户端重新放回其所属 I/O 线程的待处理队列（mainThreadPendingClientsToIOThreads[c->tid]），等待 I/O 线程继续处理网络读写。
         node = NULL;
     
         /* If there are several clients to process, let io thread handle them ASAP. */
-        sendPendingClientsToIOThreadIfNeeded(t, 1);
+        sendPendingClientsToIOThreadIfNeeded(t, 1);                                         //如果还有多个客户端待处理，立即通知 I/O 线程，提高并发效率。
     }
     if (node) zfree(node);
 
     /* Send the clients to io thread without pending size check, since main thread
      * may process clients from other io threads, so we need to send them to the
      * io thread to process in prallel. */
-    sendPendingClientsToIOThreadIfNeeded(t, 0);
+    sendPendingClientsToIOThreadIfNeeded(t, 0);                                            //即使没有积压，也强制发送一次，确保所有处理完的客户端都能及时返回 I/O 线程。
 
     return processed;
 }
