@@ -1902,29 +1902,29 @@ void freeClient(client *c) {
     zfree(c);
 }
 
-/* Schedule a client to free it at a safe time in the beforeSleep() function.
+/* Schedule a client to free it at a safe time in the beforeSleep() function.   安排在beforesleep时 释放
  * This function is useful when we need to terminate a client but we are in
  * a context where calling freeClient() is not possible, because the client
  * should be valid for the continuation of the flow of the program. */
 void freeClientAsync(client *c) {
-    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-        int main_thread = pthread_equal(pthread_self(), server.main_thread_id);
+    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {                            //非主线释放客户端对象
+        int main_thread = pthread_equal(pthread_self(), server.main_thread_id); //主线程调用的free
         /* Make sure the main thread can access IO thread data safely. */
-        if (main_thread) pauseIOThread(c->tid);
-        if (!(c->flags & CLIENT_IO_CLOSE_ASAP)) {
-            c->io_flags |= CLIENT_IO_CLOSE_ASAP;
-            enqueuePendingClientsToMainThread(c, 1);
+        if (main_thread) pauseIOThread(c->tid);                                 //主线的话 暂停io线程所在线程组
+        if (!(c->flags & CLIENT_IO_CLOSE_ASAP)) {                               //状态非关闭
+            c->io_flags |= CLIENT_IO_CLOSE_ASAP;                                //设置成关闭
+            enqueuePendingClientsToMainThread(c, 1);                            //提交给主线程 （等到主线程beforesleep的时候 调用）
         }
-        if (main_thread) resumeIOThread(c->tid);
+        if (main_thread) resumeIOThread(c->tid);                                //主线的话 恢复子线程
         return;
     }
 
-    if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_SCRIPT) return;
-    c->flags |= CLIENT_CLOSE_ASAP;
+    if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_SCRIPT) return;   //主线程管理 且已经设置为关闭或者lua脚本客户端 防止重复操作
+    c->flags |= CLIENT_CLOSE_ASAP;                                          //打关闭标记
     /* Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the
      * replication backlog from been trimmed. */
-    if (c->flags & CLIENT_SLAVE) freeReplicaReferencedReplBuffer(c);
-    listAddNodeTail(server.clients_to_close,c);
+    if (c->flags & CLIENT_SLAVE) freeReplicaReferencedReplBuffer(c);        //如果是从节点  释放积压缓冲区
+    listAddNodeTail(server.clients_to_close,c);                             //客户端加入全局待关闭的队列
 }
 
 /* Log errors for invalid use and free the client in async way.
@@ -2265,7 +2265,7 @@ int handleClientsWithPendingWrites(void) {
         if (server.io_threads_num > 1 &&
             !(c->flags & CLIENT_CLOSE_AFTER_REPLY) &&
             !isClientMustHandledByMainThread(c))
-        {
+        {                                       //发送给客户端信息的话,分配给io线程
             assignClientToIOThread(c);
             continue;
         }
@@ -2885,47 +2885,47 @@ void handleClientReadError(client *c) {
  * or because a client was blocked and later reactivated, so there could be
  * pending query buffer, already representing a full command, to process.
  * return C_ERR in case the client was freed during the processing */
-int processInputBuffer(client *c) {
+int processInputBuffer(client *c) {                                     //处理客户端的输入缓冲区
     /* Keep processing while there is something in the input buffer */
-    while(c->qb_pos < sdslen(c->querybuf)) {
+    while(c->qb_pos < sdslen(c->querybuf)) {                            //当前读位置 < 输入缓冲区总长度
         /* Immediately abort if the client is in the middle of something. */
-        if (c->flags & CLIENT_BLOCKED) break;
+        if (c->flags & CLIENT_BLOCKED) break;                           //处于阻塞状态 跳出
 
         /* Don't process more buffers from clients that have already pending
          * commands to execute in c->argv. */
-        if (c->flags & CLIENT_PENDING_COMMAND) break;
+        if (c->flags & CLIENT_PENDING_COMMAND) break;                   //有命令待执行 跳出
 
         /* Don't process input from the master while there is a busy script
          * condition on the slave. We want just to accumulate the replication
          * stream (instead of replying -BUSY like we do with other clients) and
          * later resume the processing. */
-        if (c->flags & CLIENT_MASTER && isInsideYieldingLongCommand()) break;
+        if (c->flags & CLIENT_MASTER && isInsideYieldingLongCommand()) break;//主从复制的特殊场景 跳出
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
          * this flag has been set (i.e. don't process more commands).
          *
          * The same applies for clients we want to terminate ASAP. */
-        if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
+        if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break; //客户端关闭情况下 跳出
 
         /* Determine request type when unknown. */
-        if (!c->reqtype) {
-            if (c->querybuf[c->qb_pos] == '*') {
+        if (!c->reqtype) {                                                  //首次解析
+            if (c->querybuf[c->qb_pos] == '*') {                            //是redis协议 resp
                 c->reqtype = PROTO_REQ_MULTIBULK;
-            } else {
+            } else {                                                        //内联格式
                 c->reqtype = PROTO_REQ_INLINE;
             }
         }
 
-        if (c->reqtype == PROTO_REQ_INLINE) {
-            if (processInlineBuffer(c) != C_OK) {
-                if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error)
+        if (c->reqtype == PROTO_REQ_INLINE) {                               //内联格式 
+            if (processInlineBuffer(c) != C_OK) {                           //解析失败
+                if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error)//io线程就提交给主线程
                     enqueuePendingClientsToMainThread(c, 0);
                 break;
             }
-        } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-            if (processMultibulkBuffer(c) != C_OK) {
-                if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error)
+        } else if (c->reqtype == PROTO_REQ_MULTIBULK) {                     //resp 协议
+            if (processMultibulkBuffer(c) != C_OK) {                        //解析失败
+                if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error)//如果是io线程就提交给主线程
                     enqueuePendingClientsToMainThread(c, 0);
                 break;
             }
@@ -2933,9 +2933,9 @@ int processInputBuffer(client *c) {
             serverPanic("Unknown request type");
         }
 
-        /* Multibulk processing could see a <= 0 length. */
-        if (c->argc == 0) {
-            freeClientArgvInternal(c, 0);
+        /* Multibulk processing could see a <= 0 length. */ //命令协议解析完成
+        if (c->argc == 0) {                         //空行
+            freeClientArgvInternal(c, 0);           //重置状态
             c->reqtype = 0;
             c->multibulklen = 0;
             c->bulklen = -1;
@@ -2943,21 +2943,21 @@ int processInputBuffer(client *c) {
             /* If we are in the context of an I/O thread, we can't really
              * execute the command here. All we can do is to flag the client
              * as one that needs to process the command. */
-            if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-                c->io_flags |= CLIENT_IO_PENDING_COMMAND;
-                c->iolookedcmd = lookupCommand(c->argv, c->argc);
-                if (c->iolookedcmd && !commandCheckArity(c->iolookedcmd, c->argc, NULL)) {
+            if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {            //io线程
+                c->io_flags |= CLIENT_IO_PENDING_COMMAND;               //标记io线程待执行
+                c->iolookedcmd = lookupCommand(c->argv, c->argc);       //设置命令
+                if (c->iolookedcmd && !commandCheckArity(c->iolookedcmd, c->argc, NULL)) {  //验证参数是否合理
                     /* The command was found, but the arity is invalid, reset it and let main
                      * thread handle. To avoid memory prefetching on an invalid command. */
                     c->iolookedcmd = NULL;
                 }
-                c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);
-                enqueuePendingClientsToMainThread(c, 0);
+                c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);//所属redis cluster
+                enqueuePendingClientsToMainThread(c, 0);                       //提交给主线程
                 break;
             }
 
             /* We are finally ready to execute the command. */
-            if (processCommandAndResetClient(c) == C_ERR) {
+            if (processCommandAndResetClient(c) == C_ERR) {                    //主线程执行命令
                 /* If the client is no longer valid, we avoid exiting this
                  * loop and trimming the client buffer later. So we return
                  * ASAP in that case. */
@@ -2966,7 +2966,7 @@ int processInputBuffer(client *c) {
         }
     }
 
-    if (c->flags & CLIENT_MASTER) {
+    if (c->flags & CLIENT_MASTER) {                                         //客户端是master
         /* If the client is a master, trim the querybuf to repl_applied,
          * since master client is very special, its querybuf not only
          * used to parse command, but also proxy to sub-replicas.
@@ -2979,22 +2979,22 @@ int processInputBuffer(client *c) {
          * In these scenarios, qb_pos points to the part of the current command
          * or the beginning of next command, and the current command is not applied yet,
          * so the repl_applied is not equal to qb_pos. */
-        if (c->repl_applied) {
-            sdsrange(c->querybuf,c->repl_applied,-1);
+        if (c->repl_applied) {                                      //querybuf需要复制给从节点只能截取到从节点当前位置       
+            sdsrange(c->querybuf,c->repl_applied,-1);      
             c->qb_pos -= c->repl_applied;
             c->repl_applied = 0;
         }
     } else if (c->qb_pos) {
         /* Trim to pos */
-        sdsrange(c->querybuf,c->qb_pos,-1);
+        sdsrange(c->querybuf,c->qb_pos,-1);                 //普通客户端 裁剪掉命令行的字节数
         c->qb_pos = 0;
     }
 
     /* Update client memory usage after processing the query buffer, this is
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
-    if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
-        updateClientMemUsageAndBucket(c);
+    if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)                  //运行在主线程
+        updateClientMemUsageAndBucket(c);                           //更新客户端内存
 
     return C_OK;
 }

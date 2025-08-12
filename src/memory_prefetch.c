@@ -151,8 +151,8 @@ static KeyPrefetchInfo *getNextPrefetchInfo(void) {
 }
 
 static void initBatchInfo(dict **dicts, GetValueDataFunc func) {
-    batch->current_dicts = dicts;
-    batch->get_value_data_func = func;
+    batch->current_dicts = dicts;           //当前字典
+    batch->get_value_data_func = func;      //获取value data的方法
 
     /* Initialize the prefetch info */
     for (size_t i = 0; i < batch->key_count; i++) {
@@ -269,14 +269,14 @@ static void prefetchValueData(KeyPrefetchInfo *info) {
  * to bring the key's value data closer to the L1 cache as well.
  */
 static void dictPrefetch(dict **dicts, GetValueDataFunc get_val_data_func) {
-    initBatchInfo(dicts, get_val_data_func);
+    initBatchInfo(dicts, get_val_data_func);            //初始化预取上下文
     KeyPrefetchInfo *info;
-    while ((info = getNextPrefetchInfo())) {
+    while ((info = getNextPrefetchInfo())) {            //轮询获得下一个需要处理的key以及状态
         switch (info->state) {
-        case PREFETCH_BUCKET: prefetchBucket(info); break;
-        case PREFETCH_ENTRY: prefetchEntry(info); break;
-        case PREFETCH_KVOBJ: prefetchKVOject(info); break;
-        case PREFETCH_VALDATA: prefetchValueData(info); break;
+        case PREFETCH_BUCKET: prefetchBucket(info); break;      //预取哈希桶bucket (dict->ht[0].table[index])
+        case PREFETCH_ENTRY: prefetchEntry(info); break;        //预取entry       （dict->ht[0].table[index] 下面的entry）
+        case PREFETCH_KVOBJ: prefetchKVOject(info); break;      //预取entry->value (object)
+        case PREFETCH_VALDATA: prefetchValueData(info); break;  //预取value->ptr (object->ptr)   只预取string类型且OBJ_ENCODING_RAW
         default: serverPanic("Unknown prefetch state %d", info->state);
         }
     }
@@ -305,32 +305,32 @@ void resetCommandsBatch(void) {
     }
 }
 
-/* Prefetching in very small batches tends to be ineffective because the technique
- * relies on a small gap—typically a few CPU cycles—between issuing the prefetch
- * and performing the actual memory access. If the batch is too small, this delay
- * cannot be effectively inserted, and the prefetching yields little to no benefit.
+/* Prefetching in very small batches tends to be ineffective because the technique      如果预取的批次太小，预取（prefetch）效果会很差。
+ * relies on a small gap—typically a few CPU cycles—between issuing the prefetch        因为“预取”技术依赖于一个关键时间窗口：在发出预取指令和真正访问内存之间，要有几纳秒到几十纳秒的延迟。
+ * and performing the actual memory access. If the batch is too small, this delay       这个延迟让 CPU 有时间提前把数据从内存加载到缓存中。
+ * cannot be effectively inserted, and the prefetching yields little to no benefit.     如果批次太小，这个时间窗口就太短，甚至没有，导致数据还没加载完就被访问，预取就失去了意义。
  *
- * To avoid wasting effort, when the remaining data is small (less than twice the
- * maximum batch size), we simply prefetch all of it at once. Otherwise, we only
- * prefetch a limited portion, capped at the configured maximum. */
+ * To avoid wasting effort, when the remaining data is small (less than twice the       为了避免浪费 CPU 资源：(小数据全取，大数据分批取，兼顾效率与资源。)
+ * maximum batch size), we simply prefetch all of it at once. Otherwise, we only        如果剩余待处理的数据量很小（小于“最大批次大小的两倍”），那就一次性全部预取，不搞分批了。
+ * prefetch a limited portion, capped at the configured maximum. */                     //否则（数据量大），就只预取一个有限的部分，最多不超过配置的最大值。
 int determinePrefetchCount(int len) {
-    if (!batch) return 0;
+    if (!batch) return 0;                                               //是否开启预取
 
     /* The batch max size is double of the configured size. */
-    int config_size = batch->max_prefetch_size / 2;
-    return len < server.prefetch_batch_max_size ? len : config_size;
+    int config_size = batch->max_prefetch_size / 2;                     //这个初始化的时候就是 server.prefetch_batch_max_size * 2
+    return len < server.prefetch_batch_max_size ? len : config_size;    //最多一次拿server.prefetch_batch_max_size 个
 }
 
-/* Prefetch command-related data:
+/* Prefetch command-related data:                                                   
  * 1. Prefetch the command arguments allocated by the I/O thread to bring them
  *    closer to the L1 cache.
  * 2. Prefetch the keys and values for all commands in the current batch from
  *    the main dictionaries. */
-void prefetchCommands(void) {
-    if (!batch) return;
+void prefetchCommands(void) {                                           //提前将即将访问的数据加载到 CPU 缓存中，从而减少主线程执行命令时的内存延迟。
+    if (!batch) return;                                                 //批次是否存在
 
     /* Prefetch argv's for all clients */
-    for (size_t i = 0; i < batch->client_count; i++) {
+    for (size_t i = 0; i < batch->client_count; i++) {                  //预读命令参数对象 argv[1] - argv[argc-1]
         client *c = batch->clients[i];
         if (!c || c->argc <= 1) continue;
         /* Skip prefetching first argv (cmd name) it was already looked up by
@@ -340,8 +340,8 @@ void prefetchCommands(void) {
         }
     }
 
-    /* Prefetch the argv->ptr if required */
-    for (size_t i = 0; i < batch->client_count; i++) {
+    /* Prefetch the argv->ptr if required */                            //为什么不直接在上面预读ptr, 需要先预读argv[i]之后再进行argv[i]->ptr
+    for (size_t i = 0; i < batch->client_count; i++) {                  //预读命令对象必须是OBJ_ENCODING_RAW argv[1]->ptr - argv[argc-1]->ptr
         client *c = batch->clients[i];
         if (!c || c->argc <= 1) continue;
         for (int j = 1; j < c->argc; j++) {
@@ -352,47 +352,47 @@ void prefetchCommands(void) {
     }
 
     /* Get the keys ptrs - we do it here after the key obj was prefetched. */
-    for (size_t i = 0; i < batch->key_count; i++) {
+    for (size_t i = 0; i < batch->key_count; i++) {                         //已经预读robj 现在把key从object 转成sds
         batch->keys[i] = ((robj *)batch->keys[i])->ptr;
     }
 
     /* Prefetch dict keys for all commands.
      * Prefetching is beneficial only if there are more than one key. */
-    if (batch->key_count > 1) {
+    if (batch->key_count > 1) {                                         //key 大于1时 才进行预读 不然收益太低
         server.stat_total_prefetch_batches++;
         /* Prefetch keys from the main dict */
-        dictPrefetch(batch->keys_dicts, getObjectValuePtr);
+        dictPrefetch(batch->keys_dicts, getObjectValuePtr);             //预读字典里对应entry
     }
 }
 
 /* Adds the client's command to the current batch.
  *
  * Returns C_OK if the command was added successfully, C_ERR otherwise. */
-int addCommandToBatch(client *c) {
-    if (unlikely(!batch)) return C_ERR;
+int addCommandToBatch(client *c) {                                  //客户端命令加入当前预取批次
+    if (unlikely(!batch)) return C_ERR;                             //是否启动了批次
 
     /* If the batch is full, process it.
      * We also check the client count to handle cases where
      * no keys exist for the clients' commands. */
-    if (batch->client_count == batch->max_prefetch_size ||
-        batch->key_count == batch->max_prefetch_size)
+    if (batch->client_count == batch->max_prefetch_size ||          //最大客户端数量限制
+        batch->key_count == batch->max_prefetch_size)               //最大key数量限制
     {
         return C_ERR;
     }
 
-    batch->clients[batch->client_count++] = c;
+    batch->clients[batch->client_count++] = c;                      //客户端追加到数组末尾
 
-    if (likely(c->iolookedcmd)) {
+    if (likely(c->iolookedcmd)) {                                   //命令是否存在
         /* Get command's keys positions */
-        getKeysResult result = GETKEYS_RESULT_INIT;
-        int num_keys = getKeysFromCommand(c->iolookedcmd, c->argv, c->argc, &result);
-        for (int i = 0; i < num_keys && batch->key_count < batch->max_prefetch_size; i++) {
-            batch->keys[batch->key_count] = c->argv[result.keys[i].pos];
+        getKeysResult result = GETKEYS_RESULT_INIT;                 
+        int num_keys = getKeysFromCommand(c->iolookedcmd, c->argv, c->argc, &result);       //命令解析出key
+        for (int i = 0; i < num_keys && batch->key_count < batch->max_prefetch_size; i++) { //循环并且防止key个数越界
+            batch->keys[batch->key_count] = c->argv[result.keys[i].pos];    //key追加到批量key数组末尾
             batch->keys_dicts[batch->key_count] =
-                kvstoreGetDict(c->db->keys, c->slot > 0 ? c->slot : 0);
-            batch->key_count++;
+                kvstoreGetDict(c->db->keys, c->slot > 0 ? c->slot : 0);     //记录key 哈希表
+            batch->key_count++;                                             //key个数+1
         }
-        getKeysFreeResult(&result);
+        getKeysFreeResult(&result);                                         //释放解析结果
     }
 
     return C_OK;

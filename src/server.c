@@ -1892,10 +1892,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
             dont_sleep = 1;
     }
 
-    if (server.io_threads_num > 1) {
+    if (server.io_threads_num > 1) {                                                    //启动多线程
         /* Corresponding to IOThreadBeforeSleep, process the clients from IO threads
          * without notification. */
-        if (processClientsOfAllIOThreads() > 0) {
+        if (processClientsOfAllIOThreads() > 0) {                                       //处理所有io线程的客户端
             /* If there are clients that are processed, it means IO thread is busy to
              * trafer clients to main thread, so the main thread does not sleep. */
             dont_sleep = 1;

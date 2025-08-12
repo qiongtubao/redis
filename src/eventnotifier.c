@@ -58,12 +58,12 @@ int getWriteEventFd(struct eventNotifier *en) {
 int triggerEventNotifier(struct eventNotifier *en) {
 #ifdef HAVE_EVENT_FD
     uint64_t u = 1;
-    if (write(en->efd, &u, sizeof(uint64_t)) == -1) {
+    if (write(en->efd, &u, sizeof(uint64_t)) == -1) {       //eventfd 发送1
         return EN_ERR;
     }
 #else
     char buf[1] = {'R'};
-    if (write(en->pipefd[1], buf, 1) == -1) {
+    if (write(en->pipefd[1], buf, 1) == -1) {               //pipe 发送‘R’
         return EN_ERR;
     }
 #endif
