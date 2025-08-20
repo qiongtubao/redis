@@ -35,20 +35,20 @@
 #define UNUSED(V) ((void) V)
 
 struct _kvstore {
-    int flags;
-    dictType dtype;
-    dict **dicts;
-    long long num_dicts;
-    long long num_dicts_bits;
-    list *rehashing;                       /* List of dictionaries in this kvstore that are currently rehashing. */
-    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used if num_dicts > 1). */
-    int allocated_dicts;                   /* The number of allocated dicts. */
-    int non_empty_dicts;                   /* The number of non-empty dicts. */
-    unsigned long long key_count;          /* Total number of keys in this kvstore. */
-    unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */
-    unsigned long long *dict_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
-    size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
-    void *metadata[];                      /* conditionally allocated based on "flags" */
+    int flags;                             /*标记位*/
+    dictType dtype;                        /* 字典类型定义 */  
+    dict **dicts;                          /* 字典数组*/
+    long long num_dicts;                   /* 当前使用的字典数量 */
+    long long num_dicts_bits;              /* num_dicts 的位数（用于位运算索引）*/
+    list *rehashing;                       /* List of dictionaries in this kvstore that are currently rehashing. */ /* 正在 rehash 的字典列表*/
+    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used if num_dicts > 1). */ /*渐进式调整大小的游标*/
+    int allocated_dicts;                   /* The number of allocated dicts. */                                                         /* 已分配的 dict 数量（容量）*/
+    int non_empty_dicts;                   /* The number of non-empty dicts. */                                                         /* 非空字典的数量 */
+    unsigned long long key_count;          /* Total number of keys in this kvstore. */                                                  /* 总键数量 */
+    unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */                           /* 总哈希桶数量 */
+    unsigned long long *dict_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */ /* 二进制索引树（BIT），用于快速定位字典 */
+    size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */                                                /* rehash 过程中的内存开销 */
+    void *metadata[];                      /* conditionally allocated based on "flags" */                                               /* 可选元数据（如键大小直方图等，按 flags 动态分配） */
 };
 
 /* Structure for kvstore iterator that allows iterating across multiple dicts. */
@@ -82,16 +82,16 @@ typedef struct {
 /*** Helpers **********************/
 /**********************************/
 
-/* Get the dictionary pointer based on dict-index. */
+/* Get the dictionary pointer based on dict-index. */ /* 通过index获得字典*/
 dict *kvstoreGetDict(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
 
-static dict **kvstoreGetDictRef(kvstore *kvs, int didx) {
+static dict **kvstoreGetDictRef(kvstore *kvs, int didx) {   /* 获取 kvstore 中指定索引的 dict 指针的地址。*/
     return &kvs->dicts[didx];
 }
 
-static int kvstoreDictIsRehashingPaused(kvstore *kvs, int didx)
+static int kvstoreDictIsRehashingPaused(kvstore *kvs, int didx) /* 获取 kvstore 中指定索引的字典（dict）是否处于“rehash 暂停”状态。*/
 {
     dict *d = kvstoreGetDict(kvs, didx);
     return d ? dictIsRehashingPaused(d) : 0;
@@ -99,21 +99,21 @@ static int kvstoreDictIsRehashingPaused(kvstore *kvs, int didx)
 
 /* Returns total (cumulative) number of keys up until given dict-index (inclusive).
  * Time complexity is O(log(kvs->num_dicts)). */
-static unsigned long long cumulativeKeyCountRead(kvstore *kvs, int didx) {
-    if (kvs->num_dicts == 1) {
+static unsigned long long cumulativeKeyCountRead(kvstore *kvs, int didx) { /* kvstore 中从第 0 个到第 didx 个 dict 的累计键数量 */
+    if (kvs->num_dicts == 1) {      /*只有一个字典就直接调用字典总个数*/
         assert(didx == 0);
         return kvstoreSize(kvs);
     }
-    int idx = didx + 1;
+    int idx = didx + 1;             /* kvs->dict_size_index 是一个 1-based 数组（下标从 1 开始）。它维护了每个 dict 键数量的“树状前缀和”。 每个位置 i 存储的是某个区间的键数之和*/
     unsigned long long sum = 0;
     while (idx > 0) {
         sum += kvs->dict_size_index[idx];
-        idx -= (idx & -idx);
+        idx -= (idx & -idx);        /*跳转到上一个相关区间*/
     }
     return sum;
 }
 
-static void addDictIndexToCursor(kvstore *kvs, int didx, unsigned long long *cursor) {
+static void addDictIndexToCursor(kvstore *kvs, int didx, unsigned long long *cursor) { /*游标变量中增加字典索引值 */
     if (kvs->num_dicts == 1)
         return;
     /* didx can be -1 when iteration is over and there are no more dicts to visit. */
@@ -122,7 +122,7 @@ static void addDictIndexToCursor(kvstore *kvs, int didx, unsigned long long *cur
     *cursor = (*cursor << kvs->num_dicts_bits) | didx;
 }
 
-static int getAndClearDictIndexFromCursor(kvstore *kvs, unsigned long long *cursor) {
+static int getAndClearDictIndexFromCursor(kvstore *kvs, unsigned long long *cursor) { /* 游标变量中获得当前字典索引值 */
     if (kvs->num_dicts == 1)
         return 0;
     int didx = (int) (*cursor & (kvs->num_dicts-1));
@@ -135,38 +135,38 @@ static int getAndClearDictIndexFromCursor(kvstore *kvs, unsigned long long *curs
  * Time complexity is O(log(kvs->num_dicts)). Take care to call it only after 
  * adding or removing keys from the kvstore.
  */
-static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
-    kvs->key_count += delta;
+static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) { /* 更新某个索引字典的个数 */
+    kvs->key_count += delta;                    /*总数量 + 1*/
 
-    dict *d = kvstoreGetDict(kvs, didx);
-    size_t dsize = dictSize(d);
+    dict *d = kvstoreGetDict(kvs, didx);        /*获得指定字典*/
+    size_t dsize = dictSize(d);                 /*获得字典个数*/
     /* Increment if dsize is 1 and delta is positive (first element inserted, dict becomes non-empty).
      * Decrement if dsize is 0 (dict becomes empty). */
-    int non_empty_dicts_delta = (dsize == 1 && delta > 0) ? 1 : (dsize == 0) ? -1 : 0;
+    int non_empty_dicts_delta = (dsize == 1 && delta > 0) ? 1 : (dsize == 0) ? -1 : 0; /* 1:首次添加， -1:首次清空 0:其他情况 */
     kvs->non_empty_dicts += non_empty_dicts_delta;
 
     /* BIT does not need to be calculated when there's only one dict. */
-    if (kvs->num_dicts == 1)
+    if (kvs->num_dicts == 1)                    /* 单个字典 跳过*/
         return;
 
     /* Update the BIT */
     int idx = didx + 1; /* Unlike dict indices, BIT is 1-based, so we need to add 1. */
     while (idx <= kvs->num_dicts) {
         if (delta < 0) {
-            assert(kvs->dict_size_index[idx] >= (unsigned long long)labs(delta));
+            assert(kvs->dict_size_index[idx] >= (unsigned long long)labs(delta)); //防止总数小于0
         }
         kvs->dict_size_index[idx] += delta;
-        idx += (idx & -idx);
+        idx += (idx & -idx);            /* 更新包含该区间的下一个区间*/
     }
 }
 
 /* Create the dict if it does not exist and return it. */
-static dict *createDictIfNeeded(kvstore *kvs, int didx) {
+static dict *createDictIfNeeded(kvstore *kvs, int didx) {   /*获得或者创建指定字典*/
     dict *d = kvstoreGetDict(kvs, didx);
     if (d) return d;
 
     kvs->dicts[didx] = dictCreate(&kvs->dtype);
-    kvs->allocated_dicts++;
+    kvs->allocated_dicts++;                     /*可用字典数+1*/
     return kvs->dicts[didx];
 }
 
@@ -177,15 +177,15 @@ static dict *createDictIfNeeded(kvstore *kvs, int didx) {
  * Note that for rehashing dicts, that is, in the case of safe iterators
  * and Scan, we won't delete the dict. We will check whether it needs
  * to be deleted when we're releasing the iterator. */
-static void freeDictIfNeeded(kvstore *kvs, int didx) {
-    if (!(kvs->flags & KVSTORE_FREE_EMPTY_DICTS) ||
-        !kvstoreGetDict(kvs, didx) ||
-        kvstoreDictSize(kvs, didx) != 0 ||
-        kvstoreDictIsRehashingPaused(kvs, didx))
+static void freeDictIfNeeded(kvstore *kvs, int didx) {      /* 尝试释放指定字典 */
+    if (!(kvs->flags & KVSTORE_FREE_EMPTY_DICTS) ||         /*未标记释放空字典*/
+        !kvstoreGetDict(kvs, didx) ||                       /*指定字典为空*/
+        kvstoreDictSize(kvs, didx) != 0 ||                  /*指定字典个数非0*/
+        kvstoreDictIsRehashingPaused(kvs, didx))            /*指定字典状态为暂停rehash 说明有安全迭代器或者scan操作中*/
         return;
-    dictRelease(kvs->dicts[didx]);
+    dictRelease(kvs->dicts[didx]);                          /*释放字典*/
     kvs->dicts[didx] = NULL;
-    kvs->allocated_dicts--;
+    kvs->allocated_dicts--;                                 /*可用字典个数-1*/
 }
 
 /**********************************/
@@ -198,32 +198,32 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
  * If there are multiple dicts, updates the bucket count for the given dictionary
  * in a DB, bucket count incremented with the new ht size during the rehashing phase.
  * If there's one dict, bucket count can be retrieved directly from single dict bucket. */
-static void kvstoreDictRehashingStarted(dict *d) {
-    kvstore *kvs = d->type->userdata;
-    kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
-    listAddNodeTail(kvs->rehashing, d);
-    metadata->rehashing_node = listLast(kvs->rehashing);
+static void kvstoreDictRehashingStarted(dict *d) {                          /*针对kvstore的字典开始rehash*/
+    kvstore *kvs = d->type->userdata;                                       /*反向获得kvstore*/
+    kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d); /*获得字典元数据*/
+    listAddNodeTail(kvs->rehashing, d);                                     /*添加到kvstore的rehashing 队列里*/
+    metadata->rehashing_node = listLast(kvs->rehashing);                    /*字典元信息获得rehash队列的节点*/
 
     unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    kvs->overhead_hashtable_rehashing += from;
+    dictRehashingInfo(d, &from, &to);                                       /*获得rehash信息，from=ht[0]bucket数量， to=ht[1]bucket数量*/
+    kvs->overhead_hashtable_rehashing += from;                              /*记录当前因 rehash 而额外占用的哈希表内存（单位：bucket 数量）。*/                             
 }
 
 /* Remove dictionary from the rehashing list.
  *
  * Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-static void kvstoreDictRehashingCompleted(dict *d) {
-    kvstore *kvs = d->type->userdata;
-    kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
-    if (metadata->rehashing_node) {
+static void kvstoreDictRehashingCompleted(dict *d) {                            /*rehashing 操作结束*/
+    kvstore *kvs = d->type->userdata;                                           /*反向获得kvstore*/
+    kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);     /*获得字典元数据*/
+    if (metadata->rehashing_node) {                                             /*字典元信息中rehash队列的节点不为空 删除节点*/
         listDelNode(kvs->rehashing, metadata->rehashing_node);
         metadata->rehashing_node = NULL;
     }
 
     unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    kvs->overhead_hashtable_rehashing -= from;
+    dictRehashingInfo(d, &from, &to);                                           /*获得rehash信息，from=ht[0]bucket数量， to=ht[1]bucket数量*/
+    kvs->overhead_hashtable_rehashing -= from;                                  /*减去额外bucket数量*/
 }
 
 /* Updates the bucket count for the given dictionary in a DB. It adds the new ht size
@@ -263,8 +263,8 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
     if (flags & KVSTORE_ALLOC_META_KEYS_HIST) 
         kvsize += sizeof(kvstoreMetadata);
     
-    kvstore *kvs = zcalloc(kvsize);
-    memcpy(&kvs->dtype, type, sizeof(kvs->dtype));
+    kvstore *kvs = zcalloc(kvsize);                 /*申请连续的一块内存*/
+    memcpy(&kvs->dtype, type, sizeof(kvs->dtype));  /*设置type*/
     kvs->flags = flags;
 
     /* kvstore must be the one to set these callbacks, so we make sure the
