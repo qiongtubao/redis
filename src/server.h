@@ -2578,54 +2578,54 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
 struct redisCommand {
     /* Declarative data */
     const char *declared_name; /* A string representing the command declared_name.
-                                * It is a const char * for native commands and SDS for module commands. */
-    const char *summary; /* Summary of the command (optional). */
-    const char *complexity; /* Complexity description (optional). */
-    const char *since; /* Debut version of the command (optional). */
-    int doc_flags; /* Flags for documentation (see CMD_DOC_*). */
-    const char *replaced_by; /* In case the command is deprecated, this is the successor command. */
-    const char *deprecated_since; /* In case the command is deprecated, when did it happen? */
-    redisCommandGroup group; /* Command group */
-    commandHistory *history; /* History of the command */
-    int num_history;
-    const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */
-    int num_tips;
-    redisCommandProc *proc; /* Command implementation */
-    int arity; /* Number of arguments, it is possible to use -N to say >= N */
-    uint64_t flags; /* Command flags, see CMD_*. */
-    uint64_t acl_categories; /* ACl categories, see ACL_CATEGORY_*. */
-    keySpec *key_specs;
-    int key_specs_num;
+                                * It is a const char * for native commands and SDS for module commands. */ /* 命令名称小写*/
+    const char *summary; /* Summary of the command (optional). */ /*命令摘要*/
+    const char *complexity; /* Complexity description (optional). */ /*时间复杂度*/
+    const char *since; /* Debut version of the command (optional). */ /*首次引入版本*/
+    int doc_flags; /* Flags for documentation (see CMD_DOC_*). */ /*文档标记*/
+    const char *replaced_by; /* In case the command is deprecated, this is the successor command. */ /*被哪个命令替代*/
+    const char *deprecated_since; /* In case the command is deprecated, when did it happen? */ /*何时被废弃*/
+    redisCommandGroup group; /* Command group */            /*命令分组（用于 COMMAND 输出）*/
+    commandHistory *history; /* History of the command */   /*版本演进历史*/
+    int num_history;                                        /*历史条目数*/
+    const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */ /*使用提示（用于客户端优化）*/
+    int num_tips;                                           /*提示条目数*/
+    redisCommandProc *proc; /* Command implementation */    /*命令实现函数（如 setCommand）*/
+    int arity; /* Number of arguments, it is possible to use -N to say >= N */ /*参数个数（-3 表示 ≥3）*/
+    uint64_t flags; /* Command flags, see CMD_*. */         /*命令标志（写、只读、拒绝 OOM 等）*/
+    uint64_t acl_categories; /* ACl categories, see ACL_CATEGORY_*. */ /*ACL 权限分类*/
+    keySpec *key_specs;                                     /*键规范数组（新式键提取）*/
+    int key_specs_num;                                      /*键规范数量*/
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect (may be NULL) */
-    redisGetKeysProc *getkeys_proc;
-    int num_args; /* Length of args array. */
+    redisGetKeysProc *getkeys_proc;                         /*旧式键提取函数（兼容性）*/
+    int num_args; /* Length of args array. */               /*参数数量*/
     /* Array of subcommands (may be NULL) */
-    struct redisCommand *subcommands;
+    struct redisCommand *subcommands;                       /*子命令数组（如 CLIENT LIST, CLIENT ID）*/
     /* Array of arguments (may be NULL) */
-    struct redisCommandArg *args;
+    struct redisCommandArg *args;                           /*参数数组（类型、可选性等）*/
 #ifdef LOG_REQ_RES
     /* Reply schema */
-    struct jsonObject *reply_schema;
+    struct jsonObject *reply_schema;                        /*返回值结构描述（用于类型推断）*/
 #endif
 
     /* Runtime populated data */
-    long long microseconds, calls, rejected_calls, failed_calls;
+    long long microseconds, calls, rejected_calls, failed_calls;    /*microseconds 总执行时间（微秒），calls 调用次数，rejected_calls 被拒绝次数，failed_calls 失败调用*/
     int id;     /* Command ID. This is a progressive ID starting from 0 that
                    is assigned at runtime, and is used in order to check
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
-                   bit set in the bitmap of allowed commands. */
-    sds fullname; /* A SDS string representing the command fullname. */
-    struct hdr_histogram* latency_histogram; /*points to the command latency command histogram (unit of time nanosecond) */
+                   bit set in the bitmap of allowed commands. */  /*命令 ID（用于 ACL 位图）*/
+    sds fullname; /* A SDS string representing the command fullname. */ /*命令全名（SDS，用于模块命令）*/
+    struct hdr_histogram* latency_histogram; /*points to the command latency command histogram (unit of time nanosecond) */ /*延迟直方图（用于 SLOWLOG）*/
     keySpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
                                      * still maintained (if applicable) so that
                                      * we can still support the reply format of
-                                     * COMMAND INFO and COMMAND GETKEYS */
+                                     * COMMAND INFO and COMMAND GETKEYS */ /* 旧式键规范（firstkey, lastkey, keystep）*/
     dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand sds name
-                             * (not the fullname), and the value is the redisCommand structure pointer. */
-    struct redisCommand *parent;
-    struct RedisModuleCommand *module_cmd; /* A pointer to the module command data (NULL if native command) */
+                             * (not the fullname), and the value is the redisCommand structure pointer. */ /*子命令字典（用于快速查找）*/
+    struct redisCommand *parent;    /*	父命令（用于子命令）*/
+    struct RedisModuleCommand *module_cmd; /* A pointer to the module command data (NULL if native command) */ /* 模块命令扩展数据 */
 };
 
 struct redisError {

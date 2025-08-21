@@ -37,57 +37,57 @@ GROUPS = {
 }
 
 
-def get_optional_desc_string(desc, field, force_uppercase=False):
-    v = desc.get(field, None)
-    if v and force_uppercase:
+def get_optional_desc_string(desc, field, force_uppercase=False):   #字典获得字符串
+    v = desc.get(field, None)   # 字典获得属性
+    if v and force_uppercase:   # 强制转大写
         v = v.upper()
-    ret = "\"%s\"" % v if v else "NULL"
-    return ret.replace("\n", "\\n")
+    ret = "\"%s\"" % v if v else "NULL" # 字符串前后加双引号 不存在就是NULL
+    return ret.replace("\n", "\\n") #转义字符
 
 
-def check_command_args_key_specs(args, command_key_specs_index_set, command_arg_key_specs_index_set):
-    if not args:
+def check_command_args_key_specs(args, command_key_specs_index_set, command_arg_key_specs_index_set): #验证 Redis 命令参数中引用的 key_spec 索引是否合法且一致
+    if not args:        # 空参数跳过
         return True
 
-    for arg in args:
-        if arg.key_spec_index is not None:
-            assert isinstance(arg.key_spec_index, int)
+    for arg in args:                        #遍历参数
+        if arg.key_spec_index is not None:                  #参数的key_spec_index 非空
+            assert isinstance(arg.key_spec_index, int)      #索引值必须为整数    重要！！！
 
-            if arg.key_spec_index not in command_key_specs_index_set:
+            if arg.key_spec_index not in command_key_specs_index_set:   #必须在command_key_specs_index_set索引集合里面
                 print("command: %s arg: %s key_spec_index error" % (command.fullname(), arg.name))
                 return False
 
-            command_arg_key_specs_index_set.add(arg.key_spec_index)
+            command_arg_key_specs_index_set.add(arg.key_spec_index)     #添加到command_arg_key_specs_index_set集合里
 
-        if not check_command_args_key_specs(arg.subargs, command_key_specs_index_set, command_arg_key_specs_index_set):
+        if not check_command_args_key_specs(arg.subargs, command_key_specs_index_set, command_arg_key_specs_index_set): #子参数递归检查
             return False
 
     return True
 
-def check_command_key_specs(command):
-    if not command.key_specs:
+def check_command_key_specs(command): #对 Redis 命令的 key_specs 和参数引用关系进行完整性与一致性验证。
+    if not command.key_specs:           #没有key specs 跳过
         return True
 
-    assert isinstance(command.key_specs, list)
+    assert isinstance(command.key_specs, list)  #command.key_specs类型必须是数组
 
-    for cmd_key_spec in command.key_specs:
-        if "flags" not in cmd_key_spec:
+    for cmd_key_spec in command.key_specs:      #遍历command.key_specs数组
+        if "flags" not in cmd_key_spec:         #必须有flags 字段
             print("command: %s key_specs missing flags" % command.fullname())
             return False
 
-        if "NOT_KEY" in cmd_key_spec["flags"]:
+        if "NOT_KEY" in cmd_key_spec["flags"]:  # flags 属性有NOT_KEY 就跳出
             # Like SUNSUBSCRIBE / SPUBLISH / SSUBSCRIBE
             return True
 
-    command_key_specs_index_set = set(range(len(command.key_specs)))
-    command_arg_key_specs_index_set = set()
+    command_key_specs_index_set = set(range(len(command.key_specs))) #生成所有合法的 key_spec 索引集合。 比如参数长度为3 就生存0，1，2
+    command_arg_key_specs_index_set = set()                         #   收集实际索引
 
     # Collect key_spec used for each arg, including arg.subarg
-    if not check_command_args_key_specs(command.args, command_key_specs_index_set, command_arg_key_specs_index_set):
+    if not check_command_args_key_specs(command.args, command_key_specs_index_set, command_arg_key_specs_index_set): #递归检查所有参数对 key_spec 的引用
         return False
 
     # Check if we have key_specs not used
-    if command_key_specs_index_set != command_arg_key_specs_index_set:
+    if command_key_specs_index_set != command_arg_key_specs_index_set:  # 检查是否有未使用的 key_spec
         print("command: %s may have unused key_spec" % command.fullname())
         return False
 
@@ -103,103 +103,103 @@ class KeySpec(object):
     def __init__(self, spec):
         self.spec = spec
 
-    def struct_code(self):
-        def _flags_code():
+    def struct_code(self):          # 生成一个字符串
+        def _flags_code():          # 生成flags  
             s = ""
-            for flag in self.spec.get("flags", []):
+            for flag in self.spec.get("flags", []):  #flags=["RW", "ACCESS"] 返回CMD_KEY_RW|CMD_KEY_ACCESS
                 s += "CMD_KEY_%s|" % flag
-            return s[:-1] if s else 0
+            return s[:-1] if s else 0               #没有返回0
 
-        def _begin_search_code():
-            if self.spec["begin_search"].get("index"):
-                return "KSPEC_BS_INDEX,.bs.index={%d}" % (
+        def _begin_search_code():                   #生成begin_search
+            if self.spec["begin_search"].get("index"):              #如果有index
+                return "KSPEC_BS_INDEX,.bs.index={%d}" % (          # KSPEC_BS_INDEX,.bs.index={1}
                     self.spec["begin_search"]["index"]["pos"]
                 )
             elif self.spec["begin_search"].get("keyword"):
-                return "KSPEC_BS_KEYWORD,.bs.keyword={\"%s\",%d}" % (
+                return "KSPEC_BS_KEYWORD,.bs.keyword={\"%s\",%d}" % ( #.bs.keyword={"KEYS",1}
                     self.spec["begin_search"]["keyword"]["keyword"],
                     self.spec["begin_search"]["keyword"]["startfrom"],
                 )
-            elif "unknown" in self.spec["begin_search"]:
+            elif "unknown" in self.spec["begin_search"]:            #无法识别 KSPEC_BS_UNKNOWN,{{0}}
                 return "KSPEC_BS_UNKNOWN,{{0}}"
             else:
-                print("Invalid begin_search! value=%s" % self.spec["begin_search"])
+                print("Invalid begin_search! value=%s" % self.spec["begin_search"]) #都没有终止
                 exit(1)
 
-        def _find_keys_code():
+        def _find_keys_code():                          #生成“查找 key”策略
             if self.spec["find_keys"].get("range"):
-                return "KSPEC_FK_RANGE,.fk.range={%d,%d,%d}" % (
+                return "KSPEC_FK_RANGE,.fk.range={%d,%d,%d}" % (    #KSPEC_FK_RANGE,.fk.range={1,1,1}
                     self.spec["find_keys"]["range"]["lastkey"],
                     self.spec["find_keys"]["range"]["step"],
                     self.spec["find_keys"]["range"]["limit"]
                 )
             elif self.spec["find_keys"].get("keynum"):
-                return "KSPEC_FK_KEYNUM,.fk.keynum={%d,%d,%d}" % (
+                return "KSPEC_FK_KEYNUM,.fk.keynum={%d,%d,%d}" % (  #KSPEC_FK_KEYNUM,.fk.keynum={2,1,1}
                     self.spec["find_keys"]["keynum"]["keynumidx"],
                     self.spec["find_keys"]["keynum"]["firstkey"],
                     self.spec["find_keys"]["keynum"]["step"]
                 )
-            elif "unknown" in self.spec["find_keys"]:
+            elif "unknown" in self.spec["find_keys"]:               #KSPEC_FK_UNKNOWN,{{0}}
                 return "KSPEC_FK_UNKNOWN,{{0}}"
             else:
                 print("Invalid find_keys! value=%s" % self.spec["find_keys"])
                 exit(1)
 
-        return "%s,%s,%s,%s" % (
-            get_optional_desc_string(self.spec, "notes"),
-            _flags_code(),
-            _begin_search_code(),
-            _find_keys_code()
+        return "%s,%s,%s,%s" % (                                #最终生成一个逗号分隔的 C 结构体字段初始化字符串。
+            get_optional_desc_string(self.spec, "notes"),       # 获得spec["notes"]字符串
+            _flags_code(),                                      # CMD_KEY_XX
+            _begin_search_code(),                               # KSPEC_BS_INDEX,.bs.index={1}
+            _find_keys_code()                                   # KSPEC_FK_KEYNUM,.fk.keynum={2,1,1}
         )
 
 
-def verify_no_dup_names(container_fullname, args):
-    name_list = [arg.name for arg in args]
-    name_set = set(name_list)
-    if len(name_list) != len(name_set):
+def verify_no_dup_names(container_fullname, args):              #检查一组命令参数（或子命令、选项等）中是否存在重复的名称，确保在同一作用域内所有参数名唯一
+    name_list = [arg.name for arg in args]                      # 获得所有参数名
+    name_set = set(name_list)                                   # 转成集合
+    if len(name_list) != len(name_set):                         # 个数对比 不一样就表示有同名
         print("{}: Dup argument names: {}".format(container_fullname, name_list))
         exit(1)
 
 
-class Argument(object):
-    def __init__(self, parent_name, desc):
-        self.parent_name = parent_name
-        self.desc = desc
-        self.name = self.desc["name"].lower()
-        if "_" in self.name:
+class Argument(object):                                     #命令参数结构  conf文件中arguments属性解析成argument对象 
+    def __init__(self, parent_name, desc):                  
+        self.parent_name = parent_name                      # 父级名称（如命令名）  
+        self.desc = desc                                    # 描述参数原始描述字典
+        self.name = self.desc["name"].lower()               # 参数名（小写）
+        if "_" in self.name:                                # 名字不能有下划线
             print("{}: name ({}) should not contain underscores".format(self.fullname(), self.name))
             exit(1)
-        self.type = self.desc["type"]
-        self.key_spec_index = self.desc.get("key_spec_index", None)
-        self.subargs = []
-        if self.type in ["oneof", "block"]:
-            self.display = None
-            for subdesc in self.desc["arguments"]:
-                self.subargs.append(Argument(self.fullname(), subdesc))
-            if len(self.subargs) < 2:
+        self.type = self.desc["type"]                       #解析出类型
+        self.key_spec_index = self.desc.get("key_spec_index", None) #关联的 key_spec 索引
+        self.subargs = []                                   #子参数
+        if self.type in ["oneof", "block"]:                 #oneof类型 互斥选项 比如NX｜XX ，block类型 一组可选参数
+            self.display = None                             #
+            for subdesc in self.desc["arguments"]:          # 参数遍历
+                self.subargs.append(Argument(self.fullname(), subdesc))  #创建子参数
+            if len(self.subargs) < 2:                       # 参数选项小于2  异常
                 print("{}: oneof or block arg contains less than two subargs".format(self.fullname()))
                 exit(1)
-            verify_no_dup_names(self.fullname(), self.subargs)
+            verify_no_dup_names(self.fullname(), self.subargs)  #检查参数是否重复
         else:
-            self.display = self.desc.get("display")
+            self.display = self.desc.get("display")          #显示文本
 
-    def fullname(self):
+    def fullname(self):                     #对象全名 SET nx
         return ("%s %s" % (self.parent_name, self.name)).replace("-", "_")
 
-    def struct_name(self):
+    def struct_name(self):                  #结构体  SET nx => SET_nx_Arg
         return "%s_Arg" % (self.fullname().replace(" ", "_"))
 
-    def subarg_table_name(self):
+    def subarg_table_name(self):            #子表名称   SET_nx_Subargs
         assert self.subargs
         return "%s_Subargs" % (self.fullname().replace(" ", "_"))
 
-    def struct_code(self):
+    def struct_code(self):                  #初始代码 MAKE_ARG()
         """
         Output example:
         MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=GETEX_expiration_Subargs
         """
 
-        def _flags_code():
+        def _flags_code():                          #flags ,optional => CMD_ARG_OPTIONAL,
             s = ""
             if self.desc.get("optional", False):
                 s += "CMD_ARG_OPTIONAL|"
@@ -208,17 +208,17 @@ class Argument(object):
             if self.desc.get("multiple_token", False):
                 assert self.desc.get("multiple", False)  # Sanity
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
-            return s[:-1] if s else "CMD_ARG_NONE"
+            return s[:-1] if s else "CMD_ARG_NONE"  #什么都没有返回CMD_ARG_NONE
 
         s = "MAKE_ARG(\"%s\",%s,%d,%s,%s,%s,%s,%d,%s)" % (
-            self.name,
-            ARG_TYPES[self.type],
-            self.desc.get("key_spec_index", -1),
-            get_optional_desc_string(self.desc, "token", force_uppercase=True),
-            get_optional_desc_string(self.desc, "summary"),
-            get_optional_desc_string(self.desc, "since"),
+            self.name,                                      #名称
+            ARG_TYPES[self.type],                           #类型
+            self.desc.get("key_spec_index", -1),            # 索引默认-1
+            get_optional_desc_string(self.desc, "token", force_uppercase=True), # token 强转大
+            get_optional_desc_string(self.desc, "summary"), # summary
+            get_optional_desc_string(self.desc, "since"),   # since
             _flags_code(),
-            len(self.subargs),
+            len(self.subargs),                              #slef.subargs 长度
             get_optional_desc_string(self.desc, "deprecated_since"),
         )
         if "display" in self.desc:
@@ -228,7 +228,7 @@ class Argument(object):
 
         return s
 
-    def write_internal_structs(self, f):
+    def write_internal_structs(self, f):        # 定义一个COMMAND_ARG 对象
         if self.subargs:
             for subarg in self.subargs:
                 subarg.write_internal_structs(f)
@@ -247,42 +247,42 @@ def to_c_name(str):
 
 
 class ReplySchema(object):
-    def __init__(self, name, desc):
-        self.name = to_c_name(name)
-        self.schema = {}
-        if desc.get("type") == "object":
+    def __init__(self, name, desc):                 #创建对象  
+        self.name = to_c_name(name) 
+        self.schema = {}                            #检查看数据是否规范
+        if desc.get("type") == "object":           # type 是object 的话 必须有 properties 和additionalProperties
             if desc.get("properties") and desc.get("additionalProperties") is None:
                 print("%s: Any object that has properties should have the additionalProperties field" % self.name)
                 exit(1)
-        elif desc.get("type") == "array":
+        elif desc.get("type") == "array":         # type 是array 的话 必须有items 且items 对象是list 且minItems和maxItems 属性为None
             if desc.get("items") and isinstance(desc["items"], list) and any([desc.get(k) is None for k in ["minItems", "maxItems"]]):
                 print("%s: Any array that has items should have the minItems and maxItems fields" % self.name)
                 exit(1)
-        for k, v in desc.items():
-            if isinstance(v, dict):
+        for k, v in desc.items():               #如果是map就继续
+            if isinstance(v, dict):             # value是json对象就生成一个ReplySchema
                 self.schema[k] = ReplySchema("%s_%s" % (self.name, k), v)
-            elif isinstance(v, list):
+            elif isinstance(v, list):           # value是个数组 则是ReplySchema数组
                 self.schema[k] = []
                 for i, subdesc in enumerate(v):
                     self.schema[k].append(ReplySchema("%s_%s_%i" % (self.name, k,i), subdesc))
-            else:
+            else:                               # 其他情况就是普通值
                 self.schema[k] = v
     
-    def write(self, f):
-        def struct_code(name, k, v):
-            if isinstance(v, ReplySchema):
+    def write(self, f):                         #写入文件
+        def struct_code(name, k, v):            
+            if isinstance(v, ReplySchema):      #value是replySchema对象类型
                 t = "JSON_TYPE_OBJECT"
                 vstr = ".value.object=&%s" % name
-            elif isinstance(v, list):
+            elif isinstance(v, list):           #value是数组
                 t = "JSON_TYPE_ARRAY"
                 vstr = ".value.array={.objects=%s,.length=%d}" % (name, len(v))
-            elif isinstance(v, bool):
+            elif isinstance(v, bool):           #value是布尔值
                 t = "JSON_TYPE_BOOLEAN"
                 vstr = ".value.boolean=%d" % int(v)
-            elif isinstance(v, str):
+            elif isinstance(v, str):            #value是字符串
                 t = "JSON_TYPE_STRING"
                 vstr = ".value.string=\"%s\"" % v
-            elif isinstance(v, int):
+            elif isinstance(v, int):            #value是int
                 t = "JSON_TYPE_INTEGER"
                 vstr = ".value.integer=%d" % v
             
@@ -310,63 +310,63 @@ class ReplySchema(object):
         f.write("struct jsonObject %s = {%s_elements,.length=%d};\n\n" % (self.name, self.name, len(self.schema)))
 
 
-class Command(object):
+class Command(object):              #这是整个命令描述、验证和 C 代码生成系统的顶级容器类，它整合了 Argument、ReplySchema 和 KeySpec，最终生成完整的 C 结构体定义
     def __init__(self, name, desc):
-        self.name = name.upper()
-        self.desc = desc
-        self.group = self.desc["group"]
-        self.key_specs = self.desc.get("key_specs", [])
-        self.subcommands = []
-        self.args = []
-        for arg_desc in self.desc.get("arguments", []):
+        self.name = name.upper()    # 强制大写
+        self.desc = desc            # 字典
+        self.group = self.desc["group"] # 字符串
+        self.key_specs = self.desc.get("key_specs", []) #数组
+        self.subcommands = []       #子命令数组
+        self.args = []              #参数数组
+        for arg_desc in self.desc.get("arguments", []): #arguments 数组
             self.args.append(Argument(self.fullname(), arg_desc))
-        verify_no_dup_names(self.fullname(), self.args)
+        verify_no_dup_names(self.fullname(), self.args) #是否有重名
         self.reply_schema = None
-        if "reply_schema" in self.desc:
+        if "reply_schema" in self.desc:                 #如果有属性reply_schema就创建ReplySchema对象
             self.reply_schema = ReplySchema(self.reply_schema_name(), self.desc["reply_schema"])
 
-    def fullname(self):
+    def fullname(self):                         #命令全名
         return self.name.replace("-", "_").replace(":", "")
 
-    def return_types_table_name(self):
+    def return_types_table_name(self):          
         return "%s_ReturnInfo" % self.fullname().replace(" ", "_")
 
-    def subcommand_table_name(self):
+    def subcommand_table_name(self):            #子命令
         assert self.subcommands
         return "%s_Subcommands" % self.name
 
-    def history_table_name(self):
+    def history_table_name(self):               #历史记录名
         return "%s_History" % (self.fullname().replace(" ", "_"))
 
-    def tips_table_name(self):
+    def tips_table_name(self):                  #提示表名
         return "%s_Tips" % (self.fullname().replace(" ", "_"))
 
-    def arg_table_name(self):
+    def arg_table_name(self):                   #参数表名
         return "%s_Args" % (self.fullname().replace(" ", "_"))
 
-    def key_specs_table_name(self):
+    def key_specs_table_name(self):             #键规范表名
         return "%s_Keyspecs" % (self.fullname().replace(" ", "_"))
 
-    def reply_schema_name(self):
+    def reply_schema_name(self):                # Schema 名
         return "%s_ReplySchema" % (self.fullname().replace(" ", "_"))
 
-    def struct_name(self):
+    def struct_name(self):                      #命令结构体名
         return "%s_Command" % (self.fullname().replace(" ", "_"))
 
-    def history_code(self):
+    def history_code(self):                     #历史表名
         if not self.desc.get("history"):
             return ""
         s = ""
         for tupl in self.desc["history"]:
-            s += "{\"%s\",\"%s\"},\n" % (tupl[0], tupl[1])
+            s += "{\"%s\",\"%s\"},\n" % (tupl[0], tupl[1]) # 版本， 记录
         return s
 
-    def num_history(self):
+    def num_history(self):                      #历史个数
         if not self.desc.get("history"):
             return 0
         return len(self.desc["history"])
 
-    def tips_code(self):
+    def tips_code(self):                        #生成tips 代码
         if not self.desc.get("command_tips"):
             return ""
         s = ""
@@ -374,19 +374,19 @@ class Command(object):
             s += "\"%s\",\n" % hint.lower()
         return s
 
-    def num_tips(self):
+    def num_tips(self):                         #tips 个数
         if not self.desc.get("command_tips"):
             return 0
         return len(self.desc["command_tips"])
 
-    def key_specs_code(self):
+    def key_specs_code(self):                   #生成key规范代码
         s = ""
         for spec in self.key_specs:
             s += "{%s}," % KeySpec(spec).struct_code()
         return s[:-1]
 
 
-    def struct_code(self):
+    def struct_code(self):                      #生成MAKE_CMD代码
         """
         Output example:
         MAKE_CMD("set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args
