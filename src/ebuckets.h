@@ -163,23 +163,23 @@ typedef struct ExpireMeta {
     /* 48bits of unix-time in msec.  This value is sufficient to represent, in
      * unix-time, until the date of 02 August, 10889
      */
-    uint32_t expireTimeLo;              /* Low bits of expireTime. */
+    uint32_t expireTimeLo;              /* Low bits of expireTime. */ /*48位表示毫秒时间 (expireTimeHi << 32) | expireTimeLo */
     uint16_t expireTimeHi;              /* High bits of expireTime. */
 
     unsigned int lastInSegment    : 1;  /* Last item in segment. If set, then 'next' will
                                            point to the NextSegHdr, unless lastItemBucket=1
                                            then it will point to segment header of the
-                                           current segment. */
+                                           current segment. */  /*是否为结束段*/
     unsigned int firstItemBucket  : 1;  /* First item in bucket. This flag assist
                                            to manipulate segments directly without
                                            the need to traverse from start the
-                                           rax tree  */
+                                           rax tree  */ /*是否桶的开始*/
     unsigned int lastItemBucket   : 1;  /* Last item in bucket. This flag assist
                                            to manipulate segments directly without
                                            the need to traverse from start the
-                                           rax tree  */
+                                           rax tree  */ /*是否桶的结束*/
     unsigned int numItems         : 5;  /* Only first item in segment will maintain
-                                           this value. */
+                                           this value. */ /*段内几个桶 5位最多31个桶*/
 
     unsigned int trash            : 1;  /* This flag indicates whether the ExpireMeta
                                            associated with the item is leftover.
@@ -188,7 +188,7 @@ typedef struct ExpireMeta {
                                            the user can still safely O(1) TTL lookup
                                            a given item and verify whether attached
                                            TTL is valid or leftover. See function
-                                           ebGetExpireTime(). */
+                                           ebGetExpireTime(). */ /*垃圾标记 延迟删除标记*/
 
     unsigned int userData         : 3;  /* ebuckets can be used to store in same
                                            instance few different types of items,
@@ -197,9 +197,9 @@ typedef struct ExpireMeta {
                                            associated with the item and can help
                                            to distinct on delete or expire callback.
                                            It is not used by ebuckets internally and
-                                           should be maintained by the user */
+                                           should be maintained by the user */ /*用户数据*/
 
-    unsigned int reserved         : 4;
+    unsigned int reserved         : 4;  /*预留4位对齐*/
 
     void *next;                       /* - If not last item in segment then next
                                            points to next eItem (lastInSegment=0).
@@ -208,7 +208,7 @@ typedef struct ExpireMeta {
                                            points to next segment header.
                                          - If last in bucket then it points to
                                            current segment header (Can be either
-                                           of type FirstSegHdr or NextSegHdr). */
+                                           of type FirstSegHdr or NextSegHdr). */ /*链式指针下一个*/
 } ExpireMeta;
 
 /* Each instance of ebuckets need to have corresponding EbucketsType that holds
@@ -246,14 +246,14 @@ typedef enum ExpireAction {
 /* ExpireInfo is used to pass input and output parameters to ebExpire(). */
 typedef struct ExpireInfo {
     /* onExpireItem - Called during active-expiration by ebExpire() */
-    ExpireAction (*onExpireItem)(eItem item, void *ctx);
+    ExpireAction (*onExpireItem)(eItem item, void *ctx);/*过期行为处理*/
 
-    uint64_t maxToExpire;         /* [INPUT ] Limit of number expired items to scan */
-    void *ctx;                    /* [INPUT ] context to pass to onExpireItem */
-    uint64_t now;                 /* [INPUT ] Current time in msec. */
-    uint64_t itemsExpired;        /* [OUTPUT] Returns the number of expired or updated items. */
+    uint64_t maxToExpire;         /* [INPUT ] Limit of number expired items to scan */ /*最多扫描次数*/
+    void *ctx;                    /* [INPUT ] context to pass to onExpireItem */    /*过期上下文*/
+    uint64_t now;                 /* [INPUT ] Current time in msec. */              /*当前时间戳*/
+    uint64_t itemsExpired;        /* [OUTPUT] Returns the number of expired or updated items. */ /*实际执行过期数量*/
     uint64_t nextExpireTime;      /* [OUTPUT] Next expiration time. Returns
-                                     EB_EXPIRE_TIME_INVALID if none left. */
+                                     EB_EXPIRE_TIME_INVALID if none left. */ /*下一个过期时间*/
 } ExpireInfo;
 
 /* Iterator to traverse ebuckets items */

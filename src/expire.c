@@ -143,27 +143,27 @@ static inline int isExpiryDictValidForSamplingCb(dict *d) {
  * active expiration and in addition the deletion of fields is simple to handle. */
 static inline void activeExpireHashFieldCycle(int type) {
     /* Remember current db across calls */
-    static unsigned int currentDb = 0;
+    static unsigned int currentDb = 0;  /*db索引*/
 
     /* Tracks the count of fields actively expired for the current database.
      * This count continues as long as it fails to actively expire all expired
      * fields of currentDb, indicating a possible need to adjust the value of
      * maxToExpire. */
-    static uint64_t activeExpirySequence = 0;
+    static uint64_t activeExpirySequence = 0;       /* 记录已经过期字段数量只要无法主动过期所有已过期的字段，就会持续下去，调整最大过期数量 加速 */
     /* Threshold for adjusting maxToExpire */
-    const uint32_t EXPIRED_FIELDS_TH = 1000000;
+    const uint32_t EXPIRED_FIELDS_TH = 1000000;     /*阈值100w 超过之后就会加大每次循环的处理量 */
 
     redisDb *db = server.db + currentDb;
 
     /* If db is empty, move to next db and return */
-    if (ebIsEmpty(db->hexpires)) {
+    if (ebIsEmpty(db->hexpires)) {                  /*如果是空就跳到下个db*/
         activeExpirySequence = 0;
         currentDb = (currentDb + 1) % server.dbnum;
         return;
     }
 
     /* Maximum number of fields to actively expire on a single call */
-    uint32_t maxToExpire = HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC / server.hz;
+    uint32_t maxToExpire = HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC / server.hz;        /*计算每次过期个数  总的大概 1s处理1万*/
 
     /* If running for a while and didn't manage to active-expire all expired fields of
      * currentDb (i.e. activeExpirySequence becomes significant) then adjust maxToExpire */
@@ -171,12 +171,12 @@ static inline void activeExpireHashFieldCycle(int type) {
         /* maxToExpire is multiplied by a factor between 1 and 32, proportional to
          * the number of times activeExpirySequence exceeded EXPIRED_FIELDS_TH */
         uint64_t factor = activeExpirySequence / EXPIRED_FIELDS_TH;
-        maxToExpire *= (factor<32) ? factor : 32;
+        maxToExpire *= (factor<32) ? factor : 32;                           /*最高加倍到32倍  也就是1s 最多处理32万个子key*/
     }
 
-    if (hashTypeDbActiveExpire(db, maxToExpire) == maxToExpire) {
+    if (hashTypeDbActiveExpire(db, maxToExpire) == maxToExpire) { /* 重要！！！*/
         /* active-expire reached maxToExpire limit */
-        activeExpirySequence += maxToExpire;
+        activeExpirySequence += maxToExpire;             /*清理数量的个数 如果等于需要清理的个数 表示还有需要处理的子key， 数量累加 */
     } else {
         /* Managed to active-expire all expired fields of currentDb */
         activeExpirySequence = 0;

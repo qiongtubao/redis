@@ -1018,17 +1018,17 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
     dictEntry *existingEntry = NULL;
     hfield hfNew = NULL;
 
-    if ((existingEntry = dictFind(ht, field)) == NULL)
+    if ((existingEntry = dictFind(ht, field)) == NULL)  /*查找字段是否存在*/
         return HSETEX_NO_FIELD;
 
-    hfield hfOld = dictGetKey(existingEntry);
+    hfield hfOld = dictGetKey(existingEntry);   /*变长属性 mstr*/
     /* Special value of EXPIRE_TIME_INVALID indicates field should be persisted.*/
-    if (expireAt == EB_EXPIRE_TIME_INVALID) {
+    if (expireAt == EB_EXPIRE_TIME_INVALID) {   /*取消过期时间*/
         /* Return error if already there is no ttl. */
-        if (hfieldGetExpireTime(hfOld) == EB_EXPIRE_TIME_INVALID)
-            return HSETEX_NO_CONDITION_MET;
+        if (hfieldGetExpireTime(hfOld) == EB_EXPIRE_TIME_INVALID)       /*没有过期时间*/
+            return HSETEX_NO_CONDITION_MET;                             /*设置失败*/
 
-        hfieldPersist(exInfo->hashObj, hfOld);
+        hfieldPersist(exInfo->hashObj, hfOld);  /*清理过期时间*/
         return HSETEX_OK;
     }
 
@@ -1089,7 +1089,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
         exInfo->minExpireFields = expireAt;
 
     dictExpireMetadata *dm = (dictExpireMetadata *) dictMetadata(ht);
-    ebAdd(&dm->hfe, &hashFieldExpireBucketsType, hfNew, expireAt);
+    ebAdd(&dm->hfe, &hashFieldExpireBucketsType, hfNew, expireAt);  /*重点中的重点 ！！！*/
     return HSETEX_OK;
 }
 
@@ -1185,14 +1185,14 @@ int hashTypeSetExInit(robj *key, kvobj *o, client *c, redisDb *db,
  */
 void hashTypeSetExDone(HashTypeSetEx *ex) {
 
-    if (hashTypeLength(ex->hashObj, 0) == 0)
+    if (hashTypeLength(ex->hashObj, 0) == 0)            /*hash 对象个数为0 结束*/
         return;
 
     /* If minimum HFE of the hash is smaller than expiration time of the
      * specified fields in the command as well as it is smaller or equal
      * than expiration time provided in the command, then the minimum
      * HFE of the hash won't change following this command. */
-    if ((ex->minExpire < ex->minExpireFields))
+    if ((ex->minExpire < ex->minExpireFields))      /* 设置的最小过期时间 < hash对象的最小过期时间 状态不需要变化 */
         return;
 
     /* Retrieve new expired time. It might have changed. */
@@ -1832,17 +1832,17 @@ static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
  */
 static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalHFE) {
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
-    redisDb *db = expireCtx->db;
-    ExpireInfo info = {0};
+    redisDb *db = expireCtx->db;                        /*过期db*/
+    ExpireInfo info = {0};                              /*过期info*/
 
-    if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {     /*处理listpackEx 编码*/
         info = (ExpireInfo) {
                 .maxToExpire = expireCtx->fieldsToExpireQuota,
                 .now = commandTimeSnapshot(),
                 .itemsExpired = 0};
 
         listpackExExpire(db, o, &info);
-    } else {
+    } else {                                            /*处理dict编码*/
         serverAssert(o->encoding == OBJ_ENCODING_HT);
 
         dict *d = o->ptr;
@@ -2046,8 +2046,8 @@ void hashTypeAddToExpires(redisDb *db, kvobj *hashObj, uint64_t expireTime) {
  * Returns number of fields active-expired.
  */
 uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire) {
-    ExpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire };
-    ExpireInfo info = {
+    ExpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire };  /*过期上下文*/
+    ExpireInfo info = {                                                         /*定义一个过期配置和信息结构体*/
             .maxToExpire = UINT64_MAX, /* Only maxFieldsToExpire play a role */
             .onExpireItem = hashTypeActiveExpire,
             .ctx = &ctx,
@@ -3412,11 +3412,11 @@ static ExpireMeta* hfieldGetExpireMeta(const eItem field) {
 
 /* returned value is unix time in milliseconds */
 uint64_t hfieldGetExpireTime(hfield field) {
-    if (!hfieldIsExpireAttached(field))
-        return EB_EXPIRE_TIME_INVALID;
+    if (!hfieldIsExpireAttached(field)) /* 没有过期时间 */
+        return EB_EXPIRE_TIME_INVALID;  /* 没有过期时间 */
 
     ExpireMeta *expireMeta = mstrMetaRef(field, &mstrFieldKind, (int) HFIELD_META_EXPIRE);
-    if (expireMeta->trash)
+    if (expireMeta->trash)              /* 没有过期时间 */
         return EB_EXPIRE_TIME_INVALID;
 
     return ebGetMetaExpTime(expireMeta);
@@ -3674,101 +3674,101 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     robj *keyArg = c->argv[1], *expireArg = c->argv[2];
 
     /* Read the hash object */
-    kvobj *hashObj = lookupKeyWrite(c->db, keyArg);
-    if (checkType(c, hashObj, OBJ_HASH))
+    kvobj *hashObj = lookupKeyWrite(c->db, keyArg);/*读取hash对象*/
+    if (checkType(c, hashObj, OBJ_HASH))    /*检查类型是否为OBJ_HASH*/
         return;
 
     /* Read the expiry time from command */
-    if (parseExpireTime(c, expireArg, unit, basetime, &expire) != C_OK)
+    if (parseExpireTime(c, expireArg, unit, basetime, &expire) != C_OK) /*解析过期时间*/
         return;
 
     /* Read optional expireSetCond [NX|XX|GT|LT] */
     char *optArg = c->argv[3]->ptr;
-    if (!strcasecmp(optArg, "nx")) {
+    if (!strcasecmp(optArg, "nx")) {                    /*仅当该字段没有过期时才设置过期时间。*/
         expireSetCond = HFE_NX; ++numFieldsAt;
-    } else if (!strcasecmp(optArg, "xx")) {
+    } else if (!strcasecmp(optArg, "xx")) {             /*仅当该字段具有现有的过期时间时才设置过期时间。*/
         expireSetCond = HFE_XX; ++numFieldsAt;
-    } else if (!strcasecmp(optArg, "gt")) {
+    } else if (!strcasecmp(optArg, "gt")) {             /*仅当新的到期时间大于当前到期时间时才设置到期时间。*/
         expireSetCond = HFE_GT; ++numFieldsAt;
-    } else if (!strcasecmp(optArg, "lt")) {
+    } else if (!strcasecmp(optArg, "lt")) {             /*仅当新的到期时间小于当前到期时间时才设置到期时间*/
         expireSetCond = HFE_LT; ++numFieldsAt;
     }
 
-    if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
+    if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) { /*检查FIELDS关键词是否存在*/
         addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
         return;
     }
 
-    /* Read number of fields */
+    /* Read number of fields */ /*解析几个subkey*/
     if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
                                       &numFields, "Parameter `numFields` should be greater than 0") != C_OK)
         return;
 
     /* Verify `numFields` is consistent with number of arguments */
-    if (numFields != (c->argc - numFieldsAt - 1)) {
+    if (numFields != (c->argc - numFieldsAt - 1)) { /*参数个数是否正确*/
         addReplyError(c, "The `numfields` parameter must match the number of arguments");
         return;
     }
 
     /* Non-existing keys and empty hashes are the same thing. It also means
      * fields in the command don't exist in the hash key. */
-    if (!hashObj) {
-        addReplyArrayLen(c, numFields);
+    if (!hashObj) {                     /*hash 对象为NULL 返回设置失败*/
+        addReplyArrayLen(c, numFields); /*返回数组个数*/
         for (int i = 0; i < numFields; i++) {
-            addReplyLongLong(c, HSETEX_NO_FIELD);
+            addReplyLongLong(c, HSETEX_NO_FIELD); /*返回-2 没有该属性*/
         }
         return;
     }
 
     oldlen = hashTypeLength(hashObj, 0);
 
-    HashTypeSetEx exCtx;
+    HashTypeSetEx exCtx;            /*上下文*/
     hashTypeSetExInit(keyArg, hashObj, c, c->db, expireSetCond, &exCtx);
-    addReplyArrayLen(c, numFields);
+    addReplyArrayLen(c, numFields); /*返回个数*/
 
     fieldAt = numFieldsAt + 1;
-    while (fieldAt < c->argc) {
+    while (fieldAt < c->argc) { //遍历
         sds field = c->argv[fieldAt]->ptr;
         SetExRes res = hashTypeSetEx(hashObj, field, expire, &exCtx);
-        updated += (res == HSETEX_OK);
-        deleted += (res == HSETEX_DELETED);
+        updated += (res == HSETEX_OK);      /*更新成功*/
+        deleted += (res == HSETEX_DELETED); /*删除数据*/
 
-        if (unlikely(res != HSETEX_OK)) {
+        if (unlikely(res != HSETEX_OK)) {       /*小概率是 res是非成功的*/
             /* If the field was not set, prevent field propagation */
-            rewriteClientCommandArgument(c, fieldAt, NULL);
+            rewriteClientCommandArgument(c, fieldAt, NULL);/*重写命令参数*/
             fieldsNotSet = 1;
         } else {
             ++fieldAt;
         }
 
-        addReplyLongLong(c,res);
+        addReplyLongLong(c,res); /* 返回结果 */
     }
 
-    hashTypeSetExDone(&exCtx);
+    hashTypeSetExDone(&exCtx);  /*上下文结束*/
 
     if (deleted + updated > 0) {
         server.dirty += deleted + updated;
         signalModifiedKey(c, c->db, keyArg);
         notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel" : "hexpire",
-                            keyArg, c->db->id);
+                            keyArg, c->db->id); /* 如果过期删除的了话就发送hdel命令， 如果是设置成功就发送hexpire命令*/
     }
 
-    newlen = (int64_t) hashTypeLength(hashObj, 0);
-    if (newlen == 0) {
+    newlen = (int64_t) hashTypeLength(hashObj, 0); /*hash key个数*/
+    if (newlen == 0) {      /*说明删完了*/
         newlen = -1;
         /* Del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
         dbDeleteSkipKeysizesUpdate(c->db, keyArg);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyArg, c->db->id);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyArg, c->db->id); /*发送del事件*/
     }
 
-    if (oldlen != newlen)
+    if (oldlen != newlen)   /*size变更*/
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
                            oldlen, newlen);
 
     /* Avoid propagating command if not even one field was updated (Either because
      * the time is in the past, and corresponding HDELs were sent, or conditions
      * not met) then it is useless and invalid to propagate command with no fields */
-    if (updated == 0) {
+    if (updated == 0) { //没有更新成功就不需要改命令下发给slave了
         preventCommandPropagation(c);
         return;
     }

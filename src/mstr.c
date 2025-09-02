@@ -198,18 +198,18 @@ mstrFlags *mstrFlagsRef(mstr s) {
  * index (flagIdx). If the metadata doesn't exist, it still returns a reference
  * to the starting location where it would have been written among other metadatas.
  * To verify if `flagIdx` of some metadata is attached, use `mstrGetFlag(s, flagIdx)`.
- */
+ */ /*返回一个指向指定元数据标志索引 (flagIdx) 对应的元数据块的指针（引用）。*/
 void *mstrMetaRef(mstr s, struct mstrKind *kind, int flagIdx) {
-    int metaOffset = 0;
+    int metaOffset = 0;                         /*偏移量*/
     /* start iterating from flags backward */
-    mstrFlags *pFlags = mstrFlagsRef(s);
+    mstrFlags *pFlags = mstrFlagsRef(s);        /*字符串前面的前面几个位置*/
     mstrFlags tmp = *pFlags;
 
-    for (int i = 0 ; i <= flagIdx ; ++i) {
-        if (tmp & 0x1) metaOffset += kind->metaSize[i];
+    for (int i = 0 ; i <= flagIdx ; ++i) {          /*多个meta*/
+        if (tmp & 0x1) metaOffset += kind->metaSize[i]; /*meta是否存在 存在就增加偏移*/
         tmp >>= 1;
     }
-    return ((char *)pFlags) - metaOffset;
+    return ((char *)pFlags) - metaOffset; /*计算偏移量*/
 }
 
 /* mstr layout: [meta-data#N]...[meta-data#0][mstrFlags][mstrhdr][string][null] */

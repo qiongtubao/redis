@@ -425,12 +425,12 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
                        ExpireInfo *info,
                        eItem *updateList)
 {
-    eItem iter = firstSegHdr->head;
-    uint32_t numSegs = firstSegHdr->numSegs;
-    void *nextSegHdr = firstSegHdr;
+    eItem iter = firstSegHdr->head;          /*当前处理项目 这里是个hash object*/
+    uint32_t numSegs = firstSegHdr->numSegs; /*段的个数*/
+    void *nextSegHdr = firstSegHdr;         /*下一个段*/
 
-    if (numSegs == 1)
-        return ebSingleSegExpire(firstSegHdr, type, info, updateList);
+    if (numSegs == 1)                                                   /*单个段  单独处理 */
+        return ebSingleSegExpire(firstSegHdr, type, info, updateList); 
 
     /*
      * In an extended-segment, there's no need to verify the expiration time of
@@ -439,61 +439,61 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
      * individual expiration times. This is different from a single-segment
      * scenario, where items can have different bucket-keys.
      */
-    for (uint32_t seg=0 ; seg < numSegs ; seg++) {
+    for (uint32_t seg=0 ; seg < numSegs ; seg++) {          /*遍历段*/
         uint32_t i;
-        ExpireMeta *mIter = type->getExpireMeta(iter);
-        uint32_t numItemsInSeg = mIter->numItems;
+        ExpireMeta *mIter = type->getExpireMeta(iter);      /*过期meta*/
+        uint32_t numItemsInSeg = mIter->numItems;           /*项的个数*/
 
-        for (i = 0; (i < numItemsInSeg) && (info->itemsExpired < info->maxToExpire) ; ++i) {
+        for (i = 0; (i < numItemsInSeg) && (info->itemsExpired < info->maxToExpire) ; ++i) { /*遍历项*/
             mIter = type->getExpireMeta(iter);
 
             /* keep aside `next` before removing `iter` by onExpireItem */
-            eItem next = mIter->next;
-            mIter->trash = 1;
-            ExpireAction act = info->onExpireItem(iter, info->ctx);
+            eItem next = mIter->next;               /*下一个项*/
+            mIter->trash = 1;                       /*设置删除表示*/
+            ExpireAction act = info->onExpireItem(iter, info->ctx); /*  */
 
             /* if (act == ACT_REMOVE_EXP_ITEM)
              *  then don't touch the item. Assume it got deleted */
 
             /* If indicated to stop then break (callback didn't delete the item) */
-            if (act == ACT_STOP_ACTIVE_EXP) {
-                mIter->trash = 0;
-                break;
+            if (act == ACT_STOP_ACTIVE_EXP) {   /*终止*/
+                mIter->trash = 0;               /*清空标记 */
+                break;                          /*返回*/
             }
 
             /* If indicated to re-insert the item, then chain it to updateList.
              * it will be ebAdd() back to ebuckets at the end of ebExpire() */
-            if (act == ACT_UPDATE_EXP_ITEM) {
-                mIter->next = *updateList;
-                *updateList = iter;
+            if (act == ACT_UPDATE_EXP_ITEM) {   /*重新加入到更新队列里*/
+                mIter->next = *updateList;      /*节点重新加入*/
+                *updateList = iter;             /*设置为头节点*/
             }
 
             /* Item was REMOVED/UPDATED. Advance to `next` item */
-            iter = next;
-            ++info->itemsExpired;
-            firstSegHdr->totalItems -= 1;
+            iter = next;                        /*迭代下一个*/
+            ++info->itemsExpired;               /*过期个数+1*/
+            firstSegHdr->totalItems -= 1;       /*段数量-1*/
         }
 
         /* if deleted all items in segment */
-        if (i == numItemsInSeg) {
+        if (i == numItemsInSeg) {              /* 最后一段 */
             /* If not last segment in bucket, then delete segment header */
-            if (seg + 1 < numSegs) {
+            if (seg + 1 < numSegs) {            /* 最后一项 */
                 nextSegHdr = iter;
-                iter = ((NextSegHdr *) nextSegHdr)->head;
-                zfree(nextSegHdr);
-                firstSegHdr->numSegs -= 1;
-                firstSegHdr->head = iter;
-                mIter = type->getExpireMeta(iter);
-                mIter->firstItemBucket = 1;
+                iter = ((NextSegHdr *) nextSegHdr)->head; /*下一个整段*/
+                zfree(nextSegHdr);                        /*释放整段*/
+                firstSegHdr->numSegs -= 1;                /*队列整段个数-1*/
+                firstSegHdr->head = iter;                 /*设置头节点为下一个整段*/
+                mIter = type->getExpireMeta(iter);        /* 获得expire meta */
+                mIter->firstItemBucket = 1;               /*标记是头meta*/
             }
         } else {
             /* We reached here because for-loop above break due to
              * ACT_STOP_ACTIVE_EXP or reached maxToExpire */
             firstSegHdr->head = iter;
             mIter = type->getExpireMeta(iter);
-            mIter->numItems = numItemsInSeg - i;
-            mIter->firstItemBucket = 1;
-            info->nextExpireTime = ebGetMetaExpTime(mIter);
+            mIter->numItems = numItemsInSeg - i; /*更新项个数*/
+            mIter->firstItemBucket = 1;          /*设置标记头meta*/
+            info->nextExpireTime = ebGetMetaExpTime(mIter); /*更新下一个过期时间*/
 
             /* If deleted one or more segments, update prevSeg of next seg to point firstSegHdr.
              * If it is the last segment, then last item need to point firstSegHdr */
@@ -502,9 +502,9 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
                 for (int i = 0; i < numItems - 1; i++)
                     mIter = type->getExpireMeta(mIter->next);
 
-                if (mIter->lastItemBucket) {
+                if (mIter->lastItemBucket) {    /*如果是最后段 设置下一段为头段*/
                     mIter->next = firstSegHdr;
-                } else {
+                } else {                        /*后面为seghdr*/
                     /* Update next-segment to point back to firstSegHdr */
                     NextSegHdr *nsh = mIter->next;
                     nsh->prevSeg = (CommonSegHdr *) firstSegHdr;
@@ -516,7 +516,7 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
     }
 
     /* deleted last segment in bucket */
-    zfree(firstSegHdr);
+    zfree(firstSegHdr);         /*全部删完了*/
     return 1;
 }
 
@@ -668,61 +668,61 @@ static int ebRemoveFromList(ebuckets *eb, EbucketsType *type, eItem item) {
 static int ebListExpire(ebuckets *eb,
                         EbucketsType *type,
                         ExpireInfo *info,
-                        eItem *updateList)
+                        eItem *updateList)      /*在链表模式的 ebuckets 中，主动过期所有已过期的项。*/
 {
-    uint32_t expired = 0;
-    eItem item = ebGetListPtr(type, *eb);
-    ExpireMeta *metaItem = type->getExpireMeta(item);
-    uint32_t numItems = metaItem->numItems; /* first item must exists */
+    uint32_t expired = 0;                   /*过期个数*/
+    eItem item = ebGetListPtr(type, *eb);   /*获得eItem指针*/
+    ExpireMeta *metaItem = type->getExpireMeta(item); /*获得过期meta*/
+    uint32_t numItems = metaItem->numItems; /* first item must exists */ /*段内有多少个桶*/
 
-    while (item != NULL) {
-        metaItem = type->getExpireMeta(item);
-        uint64_t itemExpTime = ebGetMetaExpTime(metaItem);
+    while (item != NULL) {  /*迭代器*/
+        metaItem = type->getExpireMeta(item);  /*获得过期meta*/
+        uint64_t itemExpTime = ebGetMetaExpTime(metaItem); /*获得过期时间*/
 
         /* Items are arranged in ascending expire-time order in a list. Stops list
          * active expiration when an item's expiration time is greater than `now`. */
-        if (itemExpTime > info->now)
+        if (itemExpTime > info->now)        /*大于当前时间 跳出*/
             break;
 
-        if (info->itemsExpired == info->maxToExpire)
+        if (info->itemsExpired == info->maxToExpire) /*删除的过期个数到达阈值 跳出*/
             break;
 
         /* keep aside `next` before removing `iter` by onExpireItem */
-        eItem *next = metaItem->next;
-        metaItem->trash = 1;
-        ExpireAction act = info->onExpireItem(item, info->ctx);
+        eItem *next = metaItem->next;   /*获得下一个过期对象*/
+        metaItem->trash = 1;            /*标记过期*/
+        ExpireAction act = info->onExpireItem(item, info->ctx); /*调用过期函数*/
 
         /* if (act == ACT_REMOVE_EXP_ITEM)
          *  then don't touch the item. Assume it got deleted */
 
         /* If indicated to stop then break (cb didn't delete the item) */
-        if (act == ACT_STOP_ACTIVE_EXP) {
-            metaItem->trash = 0;
+        if (act == ACT_STOP_ACTIVE_EXP) {           /*停止过期*/
+            metaItem->trash = 0;                    /*清理过期标记*/
             break;
         }
 
         /* If indicated to re-insert the item, then chain it to updateList.
          * it will be ebAdd() back to ebuckets at the end of ebExpire() */
-        if (act == ACT_UPDATE_EXP_ITEM) {
+        if (act == ACT_UPDATE_EXP_ITEM) {    /*更新过期时间，加入到更新队列里 */
             metaItem->next = *updateList;
             *updateList = item;
         }
 
-        ++expired;
-        ++(info->itemsExpired);
-        item = next;
+        ++expired;                      /*过期个数+1*/
+        ++(info->itemsExpired);         /*过期个数+1*/
+        item = next;                    /*跳到下一个节点*/
     }
 
-    if (expired == numItems) {
+    if (expired == numItems) {          /* 所有项都被清理完成后*/
         *eb = NULL;
         info->nextExpireTime = EB_EXPIRE_TIME_INVALID;
         return 1;
     }
 
-    metaItem->numItems = numItems - expired;
-    metaItem->firstItemBucket = 1;
-    info->nextExpireTime = ebGetMetaExpTime(metaItem);
-    *eb = ebMarkAsList(item);
+    metaItem->numItems = numItems - expired; /* 更新段内节点个数*/
+    metaItem->firstItemBucket = 1;          /*标记为头节点*/
+    info->nextExpireTime = ebGetMetaExpTime(metaItem);/*更新下一个过期时间*/
+    *eb = ebMarkAsList(item); /*设置为头节点？？？ 和开始的时候ebGetListPtr对称？*/
     return 0;
 }
 
@@ -1426,30 +1426,30 @@ int ebRemove(ebuckets *eb, EbucketsType *type, eItem item) {
 int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime) {
     int res;
 
-    assert(expireTime <= EB_EXPIRE_TIME_MAX);
+    assert(expireTime <= EB_EXPIRE_TIME_MAX); /*验证过期时间*/
 
     /* Set expire-time and reset segment flags */
-    ExpireMeta *itemMeta = type->getExpireMeta(item);
-    ebSetMetaExpTime(itemMeta, expireTime);
-    itemMeta->lastInSegment = 0;
+    ExpireMeta *itemMeta = type->getExpireMeta(item);/*获得过期meta*/
+    ebSetMetaExpTime(itemMeta, expireTime);         /*设置过期时间*/
+    itemMeta->lastInSegment = 0;                    /*初始化其他属性*/
     itemMeta->firstItemBucket = 0;
     itemMeta->lastItemBucket = 0;
     itemMeta->numItems = 0;
     itemMeta->trash = 0;
 
-    if (ebIsList(*eb) || (ebIsEmpty(*eb))) {
+    if (ebIsList(*eb) || (ebIsEmpty(*eb))) {        /*判断list模式对象或者是空的时候*/
         /* Try add item to list */
-        if ( (res = ebAddToList(eb, type, item)) == 1) {
+        if ( (res = ebAddToList(eb, type, item)) == 1) {        /*添加或者创建list模式对象*/
             /* Failed to add since list reached maximum size. Convert to rax */
             *eb = ebConvertListToRax(ebGetListPtr(type, *eb), type);
             res = ebAddToRax(eb, type, item, EB_BUCKET_KEY(expireTime));
         }
-    } else {
+    } else { /*rax模式*/
         /* Add item to rax */
         res = ebAddToRax(eb, type, item, EB_BUCKET_KEY(expireTime));
     }
 
-    EB_VALIDATE_STRUCTURE(*eb, type);
+    EB_VALIDATE_STRUCTURE(*eb, type); /*验证eb是否有效*/
 
     return res;
 }
@@ -1470,33 +1470,33 @@ void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info) {
      *
      * Note, this list of items does not allocate any memory, but temporary reuses
      * the `next` pointer of the `ExpireMeta` structure of the expired items. */
-    eItem updateList = NULL;
+    eItem updateList = NULL;    /*过期了但是需要更新过期时间而不是直接删除的项*/
 
     /* reset info outputs */
-    info->nextExpireTime = EB_EXPIRE_TIME_INVALID;
+    info->nextExpireTime = EB_EXPIRE_TIME_INVALID; /*初始化info里的数据*/
     info->itemsExpired = 0;
 
     /* if empty ebuckets */
-    if (ebIsEmpty(*eb)) return;
+    if (ebIsEmpty(*eb)) return;     /*如果是空的话 直接跳出*/
 
-    if (ebIsList(*eb)) {
+    if (ebIsList(*eb)) {            /*如果是链表模式的话 调用遍历链表的方法，返回过期的链表*/
         ebListExpire(eb, type, info, &updateList);
         goto END_ACTEXP;
     }
 
     /* handle rax expiry */
 
-    rax *rax = ebGetRaxPtr(*eb);
+    rax *rax = ebGetRaxPtr(*eb);    /*rax树模式*/
     raxIterator iter;
 
-    raxStart(&iter, rax);
+    raxStart(&iter, rax);           /*迭代器初始化*/
 
-    uint64_t nowKey = EB_BUCKET_KEY(info->now);
-    uint64_t itemsExpiredBefore = info->itemsExpired;
+    uint64_t nowKey = EB_BUCKET_KEY(info->now);     /*按时间转换成桶键*/
+    uint64_t itemsExpiredBefore = info->itemsExpired;/*操作前过期个数*/
 
     while (1) {
-        raxSeek(&iter,"^",NULL,0);
-        if (!raxNext(&iter)) break;
+        raxSeek(&iter,"^",NULL,0);  /*seek 第一个key*/
+        if (!raxNext(&iter)) break; /*没有下一个key 直接跳出去*/
 
         uint64_t bucketKey = raxKey2BucketKey(iter.key);
 
@@ -1507,25 +1507,25 @@ void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info) {
          * keys that are older than 1<<EB_BUCKET_KEY_PRECISION msec ago. That is, it
          * is needed to visit only the buckets with keys that are "<" than:
          * EB_BUCKET_KEY(info->now). */
-        if (bucketKey >= nowKey) {
+        if (bucketKey >= nowKey) {  /* 扫描到桶key 大于等于 当前时间的桶key值 跳出 */
             /* Take care to update next expire time based on next segment to expire */
             info->nextExpireTime = ebGetMetaExpTime(
-                    type->getExpireMeta(firstSegHdr->head));
+                    type->getExpireMeta(firstSegHdr->head)); /*获得下一个过期时间*/
             break;
         }
 
         /* If not managed to remove entire bucket then return */
-        if (ebSegExpire(firstSegHdr, type, info, &updateList) == 0)
+        if (ebSegExpire(firstSegHdr, type, info, &updateList) == 0) /*遍历该段的expiremeta 返回0 表示没删除完被终止了*/
             break;
 
-        raxRemove(iter.rt, iter.key, EB_KEY_SIZE, NULL);
+        raxRemove(iter.rt, iter.key, EB_KEY_SIZE, NULL); /* 移除桶*/
     }
 
-    raxStop(&iter);
-    *ebRaxNumItems(rax) -= info->itemsExpired - itemsExpiredBefore;
+    raxStop(&iter); /*终止迭代器*/
+    *ebRaxNumItems(rax) -= info->itemsExpired - itemsExpiredBefore; /* 树的项数 -= 删除掉的项数*/
 
-    if(raxEOF(&iter) && (updateList == 0)) {
-        raxFree(rax);
+    if(raxEOF(&iter) && (updateList == 0)) { /*整个树被删除完了， 且没有更新项*/
+        raxFree(rax);                       /*删除树*/
         *eb = NULL;
     }
 
@@ -1534,18 +1534,18 @@ END_ACTEXP:
     while (updateList) {
         ExpireMeta *mItem = type->getExpireMeta(updateList);
         eItem next = mItem->next;
-        uint64_t expireAt = ebGetMetaExpTime(mItem);
+        uint64_t expireAt = ebGetMetaExpTime(mItem);        /*过期时间*/
 
         /* Update next minimum expire time if needed.
          * Condition is valid also if nextExpireTime is EB_EXPIRE_TIME_INVALID */
-        if (expireAt < info->nextExpireTime)
+        if (expireAt < info->nextExpireTime)            /*刷新最近下次过期时间*/
             info->nextExpireTime = expireAt;
 
-        ebAdd(eb, type, updateList, expireAt);
+        ebAdd(eb, type, updateList, expireAt);  /*更新项重新添加*/
         updateList = next;
     }
 
-    EB_VALIDATE_STRUCTURE(*eb, type);
+    EB_VALIDATE_STRUCTURE(*eb, type);           /*验证数据结构是否有效*/
 
     return;
 }
