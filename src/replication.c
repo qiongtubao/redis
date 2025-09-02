@@ -684,13 +684,13 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 }
 
 /* Feed the slave 'c' with the replication backlog starting from the
- * specified 'offset' up to the end of the backlog. */
+ * specified 'offset' up to the end of the backlog. */ /*当一个从节点 请求增量同步， 主节点从赋值积压缓冲区的指定偏移量开始将后续所有数据发送给该从节点，*/
 long long addReplyReplicationBacklog(client *c, long long offset) {
     long long skip;
 
     serverLog(LL_DEBUG, "[PSYNC] Replica request offset: %lld", offset);
 
-    if (server.repl_backlog->histlen == 0) {
+    if (server.repl_backlog->histlen == 0) {    /*缓存积压区 没有数据*/
         serverLog(LL_DEBUG, "[PSYNC] Backlog history len is zero");
         return 0;
     }
@@ -703,12 +703,12 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
              server.repl_backlog->histlen);
 
     /* Compute the amount of bytes we need to discard. */
-    skip = offset - server.repl_backlog->offset;
+    skip = offset - server.repl_backlog->offset;            /*缓存积压区 起始位置到请求的offset之间需要跳过的字节 */
     serverLog(LL_DEBUG, "[PSYNC] Skipping: %lld", skip);
 
     /* Iterate recorded blocks, quickly search the approximate node. */
-    listNode *node = NULL;
-    if (raxSize(server.repl_backlog->blocks_index) > 0) {
+    listNode *node = NULL;                                  /*快速定位到大致的数据块（rax树索引）*/
+    if (raxSize(server.repl_backlog->blocks_index) > 0) {   /*有索引的话 找到最接近的索引节点*/
         uint64_t encoded_offset = htonu64(offset);
         raxIterator ri;
         raxStart(&ri, server.repl_backlog->blocks_index);
@@ -730,11 +730,11 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
         raxStop(&ri);
     } else {
         /* No recorded blocks, just from the start node to search. */
-        node = server.repl_backlog->ref_repl_buf_node;
+        node = server.repl_backlog->ref_repl_buf_node;                  /*没有对应索引 当前节点慢慢往下找吧*/
     }
 
     /* Search the exact node. */
-    while (node != NULL) {
+    while (node != NULL) {                                              /*找到第一个数据块*/
         replBufBlock *o = listNodeValue(node);
         if (o->repl_offset + (long long)o->used >= offset) break;
         node = listNextNode(node);
@@ -742,14 +742,14 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
     serverAssert(node != NULL);
 
     /* Install a writer handler first.*/
-    prepareClientToWrite(c);
+    prepareClientToWrite(c);                    /*确保客户端处于可写状态*/
     /* Setting output buffer of the replica. */
-    replBufBlock *o = listNodeValue(node);
-    o->refcount++;
-    c->ref_repl_buf_node = node;
-    c->ref_block_pos = offset - o->repl_offset;
+    replBufBlock *o = listNodeValue(node);      /* 获得数据块 */
+    o->refcount++;                              /* 数据块引用计数 + 1防止被释放*/
+    c->ref_repl_buf_node = node;                /* 保存到客户端上 */
+    c->ref_block_pos = offset - o->repl_offset; /* 保存数据块内的起始位置*/
 
-    return server.repl_backlog->histlen - skip;
+    return server.repl_backlog->histlen - skip; /*返回从offset 开始积压缓冲区中剩余的有效长度 */
 }
 
 /* Return the offset to provide as reply to the PSYNC command received
