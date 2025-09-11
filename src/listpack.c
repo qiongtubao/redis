@@ -438,14 +438,14 @@ static inline void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t
  * a return value of another function that validated its return. */
 static inline uint32_t lpCurrentEncodedSizeUnsafe(unsigned char *p) {
     if (LP_ENCODING_IS_7BIT_UINT(p[0])) return 1;
-    if (LP_ENCODING_IS_6BIT_STR(p[0])) return 1+LP_ENCODING_6BIT_STR_LEN(p);
-    if (LP_ENCODING_IS_13BIT_INT(p[0])) return 2;
-    if (LP_ENCODING_IS_16BIT_INT(p[0])) return 3;
-    if (LP_ENCODING_IS_24BIT_INT(p[0])) return 4;
-    if (LP_ENCODING_IS_32BIT_INT(p[0])) return 5;
-    if (LP_ENCODING_IS_64BIT_INT(p[0])) return 9;
-    if (LP_ENCODING_IS_12BIT_STR(p[0])) return 2+LP_ENCODING_12BIT_STR_LEN(p);
-    if (LP_ENCODING_IS_32BIT_STR(p[0])) return 5+LP_ENCODING_32BIT_STR_LEN(p);
+    if (LP_ENCODING_IS_6BIT_STR(p[0])) return 1+LP_ENCODING_6BIT_STR_LEN(p); /*标记开头2位 10 短字符串*/
+    if (LP_ENCODING_IS_13BIT_INT(p[0])) return 2;   /* 前3位 110 */
+    if (LP_ENCODING_IS_16BIT_INT(p[0])) return 3;   /* 11100001 */
+    if (LP_ENCODING_IS_24BIT_INT(p[0])) return 4;   /* 11110010 */
+    if (LP_ENCODING_IS_32BIT_INT(p[0])) return 5;   /* 11110011 */
+    if (LP_ENCODING_IS_64BIT_INT(p[0])) return 9;   /* 11110100 */
+    if (LP_ENCODING_IS_12BIT_STR(p[0])) return 2+LP_ENCODING_12BIT_STR_LEN(p); /* 前8位 11100000 */
+    if (LP_ENCODING_IS_32BIT_STR(p[0])) return 5+LP_ENCODING_32BIT_STR_LEN(p); /* 前8位 11110000 */
     if (p[0] == LP_EOF) return 1;
     return 0;
 }
@@ -947,25 +947,25 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * For deletion operations (both 'elestr' and 'eleint' set to NULL) 'newp' is
  * set to the next element, on the right of the deleted one, or to NULL if the
  * deleted element was the last one. */
-unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char *eleint,
-                        uint32_t size, unsigned char *p, int where, unsigned char **newp)
+unsigned char *lpInsert(unsigned char *lp/*指向 listpack 起始地址的指针*/, unsigned char *elestr/*要插入的字符串数据（可为 NULL）*/, unsigned char *eleint /*要插入的已编码整数（可为 NULL）*/,
+                        uint32_t size/*	数据长度（字符串长度或整数编码长度）*/, unsigned char *p /*插入位置的指针（指向某个 entry 起始）*/, int where /*插入方式：LP_BEFORE, LP_AFTER, LP_REPLACE*/, unsigned char **newp /*输出参数：返回新插入 entry 的指针*/)
 {
     unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
     unsigned char backlen[LP_MAX_BACKLEN_SIZE];
 
     uint64_t enclen; /* The length of the encoded element. */
-    int delete = (elestr == NULL && eleint == NULL);
+    int delete = (elestr == NULL && eleint == NULL); /*插入字符串或者int 编码的数据为NULL 表示要删除*/
 
     /* when deletion, it is conceptually replacing the element with a
      * zero-length element. So whatever we get passed as 'where', set
      * it to LP_REPLACE. */
-    if (delete) where = LP_REPLACE;
+    if (delete) where = LP_REPLACE; /*确认方式*/
 
     /* If we need to insert after the current element, we just jump to the
      * next element (that could be the EOF one) and handle the case of
      * inserting before. So the function will actually deal with just two
      * cases: LP_BEFORE and LP_REPLACE. */
-    if (where == LP_AFTER) {
+    if (where == LP_AFTER) { /*后面插入 = 跳到下一个数据 在向前插入数据 */
         p = lpSkip(p);
         where = LP_BEFORE;
         ASSERT_INTEGRITY(lp, p);
@@ -973,10 +973,10 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
 
     /* Store the offset of the element 'p', so that we can obtain its
      * address again after a reallocation. */
-    unsigned long poff = p-lp;
+    unsigned long poff = p-lp;  /*保存一下距离开始的偏移量*/
 
     int enctype;
-    if (elestr) {
+    if (elestr) { /* 插入字符串 */
         /* Calling lpEncodeGetType() results into the encoded version of the
         * element to be stored into 'intenc' in case it is representable as
         * an integer: in that case, the function returns LP_ENCODING_INT.
@@ -985,31 +985,31 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
         *
         * Whatever the returned encoding is, 'enclen' is populated with the
         * length of the encoded element. */
-        enctype = lpEncodeGetType(elestr,size,intenc,&enclen);
-        if (enctype == LP_ENCODING_INT) eleint = intenc;
-    } else if (eleint) {
+        enctype = lpEncodeGetType(elestr,size,intenc,&enclen); /*尝试转int*/
+        if (enctype == LP_ENCODING_INT) eleint = intenc;    /*如果转成功的话 修改字符串和长度*/
+    } else if (eleint) {    /*插入数字*/
         enctype = LP_ENCODING_INT;
-        enclen = size; /* 'size' is the length of the encoded integer element. */
+        enclen = size; /* 'size' is the length of the encoded integer element. */ 
     } else {
-        enctype = -1;
+        enctype = -1;   /*删除*/
         enclen = 0;
     }
 
     /* We need to also encode the backward-parsable length of the element
      * and append it to the end: this allows to traverse the listpack from
      * the end to the start. */
-    unsigned long backlen_size = (!delete) ? lpEncodeBacklen(backlen,enclen) : 0;
-    uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
-    uint32_t replaced_len  = 0;
+    unsigned long backlen_size = (!delete) ? lpEncodeBacklen(backlen,enclen) : 0; /*解析出entry总长 */
+    uint64_t old_listpack_bytes = lpGetTotalBytes(lp); /*当前lp总长*/
+    uint32_t replaced_len  = 0; /*删除长度*/
     if (where == LP_REPLACE) {
-        replaced_len = lpCurrentEncodedSizeUnsafe(p);
-        replaced_len += lpEncodeBacklenBytes(replaced_len);
+        replaced_len = lpCurrentEncodedSizeUnsafe(p); /*获得类型 + 数据长度*/
+        replaced_len += lpEncodeBacklenBytes(replaced_len); /* 最后backlen */
         ASSERT_INTEGRITY_LEN(lp, p, replaced_len);
     }
 
     uint64_t new_listpack_bytes = old_listpack_bytes + enclen + backlen_size
-                                  - replaced_len;
-    if (new_listpack_bytes > UINT32_MAX) return NULL;
+                                  - replaced_len; /*当前lp长度  +  (类型 + 数据长度) + （backlen长度） - 删除长度*/
+    if (new_listpack_bytes > UINT32_MAX) return NULL; /*最后长度大于int32 返回添加失败 */
 
     /* We now need to reallocate in order to make space or shrink the
      * allocation (in case 'when' value is LP_REPLACE and the new element is
@@ -1017,27 +1017,27 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
      * make room for the new element if the final allocation will get
      * larger, or we do it after if the final allocation will get smaller. */
 
-    unsigned char *dst = lp + poff; /* May be updated after reallocation. */
+    unsigned char *dst = lp + poff; /* May be updated after reallocation. */ 
 
     /* Realloc before: we need more room. */
     if (new_listpack_bytes > old_listpack_bytes &&
-        new_listpack_bytes > lp_malloc_size(lp)) {
+        new_listpack_bytes > lp_malloc_size(lp)) { /*新长度 需要扩容*/
         if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
-        dst = lp + poff;
+        dst = lp + poff;  /*新位置*/
     }
 
     /* Setup the listpack relocating the elements to make the exact room
      * we need to store the new one. */
-    if (where == LP_BEFORE) {
-        memmove(dst+enclen+backlen_size,dst,old_listpack_bytes-poff);
-    } else { /* LP_REPLACE. */
+    if (where == LP_BEFORE) { /*插入*/
+        memmove(dst+enclen+backlen_size,dst,old_listpack_bytes-poff); /* 后面往后移 */
+    } else { /* LP_REPLACE. */ /*删除*/
         memmove(dst+enclen+backlen_size,
                 dst+replaced_len,
-                old_listpack_bytes-poff-replaced_len);
+                old_listpack_bytes-poff-replaced_len);  /* 后面往前移 */
     }
 
     /* Realloc after: we need to free space. */
-    if (new_listpack_bytes < old_listpack_bytes) {
+    if (new_listpack_bytes < old_listpack_bytes) { /* 缩容 */
         if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
         dst = lp + poff;
     }
@@ -1049,30 +1049,30 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
          * the EOF element. */
         if (delete && dst[0] == LP_EOF) *newp = NULL;
     }
-    if (!delete) {
-        if (enctype == LP_ENCODING_INT) {
+    if (!delete) {  /*插入*/
+        if (enctype == LP_ENCODING_INT) { /*拷贝到dst位置*/
             memcpy(dst,eleint,enclen);
-        } else if (elestr) {
+        } else if (elestr) {    /*拷贝字符串到指定位置*/
             lpEncodeString(dst,elestr,size);
         } else {
             redis_unreachable();
         }
         dst += enclen;
-        memcpy(dst,backlen,backlen_size);
+        memcpy(dst,backlen,backlen_size); /*拷贝backlen到指定位置*/
         dst += backlen_size;
     }
 
     /* Update header. */
-    if (where != LP_REPLACE || delete) {
-        uint32_t num_elements = lpGetNumElements(lp);
+    if (where != LP_REPLACE || delete) { /*更新头文件*/
+        uint32_t num_elements = lpGetNumElements(lp); /*先获得原来个数 */
         if (num_elements != LP_HDR_NUMELE_UNKNOWN) {
             if (!delete)
-                lpSetNumElements(lp,num_elements+1);
+                lpSetNumElements(lp,num_elements+1); /* 插入 更新个数 + 1 */
             else
-                lpSetNumElements(lp,num_elements-1);
+                lpSetNumElements(lp,num_elements-1); /* 删除 更新个数 - 1*/
         }
     }
-    lpSetTotalBytes(lp,new_listpack_bytes);
+    lpSetTotalBytes(lp,new_listpack_bytes); /*更新总字符个数*/
 
 #if 0
     /* This code path is normally disabled: what it does is to force listpack
