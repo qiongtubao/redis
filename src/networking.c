@@ -451,7 +451,6 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
         /* We update the buffer peak after appending the reply to the buffer */
         c->buf_peak = max(c->buf_peak,(size_t)c->bufpos);
     }
-
     if (len > reply_len) _addReplyProtoToList(c,c->reply,s+reply_len,len-reply_len);
 }
 
@@ -605,7 +604,7 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
          * * We are reading from an AOF file. */
         int panic_in_replicas = (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro)
             && (server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC ||
-            server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC_ON_REPLICAS);
+            server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC_ON_REPLICAS) && !server.gtid_enabled;
         int panic_in_aof = c->id == CLIENT_ID_AOF 
             && server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC;
         if (panic_in_replicas || panic_in_aof) {
@@ -2953,6 +2952,7 @@ void commandProcessed(client *c) {
             c->repl_applied += applied;
         }
     }
+    if (gtid_repr) decrRefCount(gtid_repr);
 }
 #endif
 

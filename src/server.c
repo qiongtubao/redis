@@ -3645,7 +3645,7 @@ static int shouldPropagate(int target) {
             return 1;
     }
     if (target & PROPAGATE_REPL) {
-        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0))
+        if (server.masterhost == NULL && (server.gtid_enabled || server.repl_backlog || listLength(server.slaves) != 0))
             return 1;
     }
 
@@ -3679,7 +3679,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
     propagateArgsInit(&pargs,dbid,argv,argc);
     propagateArgsPrepareToFeed(&pargs);
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
-        ctrip_feedAppendOnlyFile(dbid,argv,argc);
+        ctrip_feedAppendOnlyFile(pargs.orig_dbid,pargs.argv,pargs.argc);
     if (target & PROPAGATE_REPL)
         ctrip_replicationFeedSlaves(server.slaves, pargs.orig_dbid,pargs.argv,
                 pargs.argc,pargs.uuid,pargs.uuid_len,pargs.gno,pargs.offset);
@@ -3793,6 +3793,11 @@ static void propagatePendingCommands(void) {
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
         propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+    } else {
+        if (server.gtid_dbid_at_multi != -1) {
+            server.gtid_dbid_at_multi = -1;
+            server.gtid_offset_at_multi = -1;
+        }
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
@@ -6459,6 +6464,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "swap_rectified_frag_bytes:%zu\r\n", mh->rectified_frag_bytes,
 #endif
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
+            "gtid_allocator:%s\r\n", gtidAllocatorName(),
             "mem_overhead_db_hashtable_rehashing:%zu\r\n", mh->overhead_db_hashtable_rehashing,
             "active_defrag_running:%d\r\n", server.active_defrag_running,
             "lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount(),
