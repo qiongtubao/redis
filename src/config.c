@@ -3166,6 +3166,10 @@ standardConfig configs[] = {
     createULongLongConfig("swap-swap-info-slave-period", NULL, MODIFIABLE_CONFIG, 1, 3600*24, server.swap_swap_info_slave_period, 60, INTEGER_CONFIG, NULL, NULL),
 #endif
     createULongLongConfig("gtid-xsync-max-gap", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.gtid_xsync_max_gap, 10000, INTEGER_CONFIG, NULL, NULL),
+    createBoolConfig("gtid-gaplog-enabled", NULL, MODIFIABLE_CONFIG, server.gtid_gaplog_enabled, 1, NULL, NULL),
+    createSizeTConfig("gtid-gaplog-max-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.gtid_gaplog_max_entries, 10000, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("gtid-gaplog-max-memory", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.gtid_gaplog_max_memory, 10*1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createSizeTConfig("gtid-gaplog-trim-threshold", NULL, MODIFIABLE_CONFIG, 0, 100, server.gtid_gaplog_trim_threshold, 80, INTEGER_CONFIG, NULL, NULL),
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),

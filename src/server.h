@@ -85,6 +85,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "endianconv.h"
 #include "crc64.h"
 #include "xredis_gtid.h"
+#include "xredis_gtid_gaplog.h"
 #ifdef ENABLE_SWAP
 #include "ctrip_swap_server.h"
 #endif
@@ -1741,6 +1742,12 @@ struct redisServer {
     long long gtid_ignored_cmd_count;
     long long gtid_executed_cmd_count;
     long long gtid_sync_stat[GTID_SYNC_TYPES];
+    /* gaplog: gtid to key mapping for lost tracking */
+    int gtid_gaplog_enabled;               /* Is gaplog enabled? */
+    size_t gtid_gaplog_max_entries;        /* Max entries in gaplog */
+    size_t gtid_gaplog_max_memory;         /* Max memory for gaplog */
+    size_t gtid_gaplog_trim_threshold;     /* Trim threshold percentage */
+    struct gtidGaplog *gtid_gaplog;        /* Gaplog instance */
     /* importing mode */
     mstime_t importing_end_time;  /* in milliseconds */
     int importing_expire_enabled; 

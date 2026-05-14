@@ -3526,6 +3526,20 @@ void initServer(void) {
     server.gtid_ignored_cmd_count = 0;
     memset(server.gtid_sync_stat,0,sizeof(server.gtid_sync_stat));
 
+    /* 初始化gaplog */
+    if (server.gtid_enabled && server.gtid_gaplog_enabled) {
+        /* max_gap 来自 gtid-xsync-max-gap 配置 */
+        server.gtid_gaplog = gtidGaplogCreate(server.gtid_xsync_max_gap);
+        if (server.gtid_gaplog == NULL) {
+            serverLog(LL_WARNING, "Failed to create gaplog instance");
+        } else {
+            serverLog(LL_NOTICE, "Gaplog initialized with max_gap=%llu",
+                     server.gtid_xsync_max_gap);
+        }
+    } else {
+        server.gtid_gaplog = NULL;
+    }
+
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
@@ -3948,7 +3962,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     if (server.in_exec && !server.propagate_in_transaction)
         execCommandPropagateMulti(dbid);
 
-    /* This needs to be unreachable since the dataset should be fixed during 
+    /* This needs to be unreachable since the dataset should be fixed during
      * client pause, otherwise data may be lossed during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
