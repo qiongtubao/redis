@@ -3526,6 +3526,8 @@ void initServer(void) {
     server.gtid_ignored_cmd_count = 0;
     memset(server.gtid_sync_stat,0,sizeof(server.gtid_sync_stat));
 
+    gtidGapLogInit();
+
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
