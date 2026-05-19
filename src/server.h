@@ -1741,6 +1741,12 @@ struct redisServer {
     long long gtid_ignored_cmd_count;
     long long gtid_executed_cmd_count;
     long long gtid_sync_stat[GTID_SYNC_TYPES];
+    /*gtid gap log*/
+    dict *gtid_gap_log;                     /* dict<sds(uuid), list<gtidGapLogGnoEntry*>> */
+    list *gtid_gap_log_list;                /* FIFO list<uuidSet*> */
+    long long gtid_gaplog_entry_count;      /* 全局gaplog条目计数器 */
+    long long gap_log_size;                 /* gaplog内存大小 */
+    int gtid_gaplog_enabled;                /* gaplog是否启用 */
     /* importing mode */
     mstime_t importing_end_time;  /* in milliseconds */
     int importing_expire_enabled; 
