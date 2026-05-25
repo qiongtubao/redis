@@ -46,6 +46,12 @@ static int zsetSwapAnaOutSelectSubkeys(swapData *data, zsetDataCtx *datactx,
     robj *subkeys;
     unsigned long long evict_memory = 0;
 
+    /* 验证 data->value 是否为有效的 zset 对象 */
+    serverAssert(data->value != NULL);
+    serverAssert(data->value->type == OBJ_ZSET);
+    serverAssert(data->value->encoding == OBJ_ENCODING_ZIPLIST ||
+                 data->value->encoding == OBJ_ENCODING_SKIPLIST);
+
     if (objectIsDataDirty(data->value)) { /* all subkeys might be dirty */
         select_type = SELECT_MAIN;
         subkeys = data->value;
@@ -76,6 +82,7 @@ static int zsetSwapAnaOutSelectSubkeys(swapData *data, zsetDataCtx *datactx,
 
     count = MIN(count,(size_t)server.swap_evict_step_max_subkeys);
     datactx->bdc.type = BASE_SWAP_CTX_TYPE_SUBKEY;
+    datactx->bdc.sub.num = 0;  /* 必须重置 num，因为 datactx 可能被重复使用 */
     datactx->bdc.sub.subkeys = zmalloc(count*sizeof(robj*));
 
     *may_keep_data = 1;

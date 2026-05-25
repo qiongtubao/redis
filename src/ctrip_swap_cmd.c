@@ -29,6 +29,7 @@
 #include "ctrip_swap.h"
 #include <math.h>
 #include "slowlog.h"
+#include "xredis_cmdparse.h"
 
 struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
     {"module",moduleCommand,-2,
@@ -95,11 +96,11 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"bitfield",bitfieldCommand,-2,
      "write use-memory @bitmap @swap_bitmap",
-     0,NULL,getKeyRequestsBitField,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"bitfield_ro",bitfieldroCommand,-2,
      "read-only fast @bitmap @swap_bitmap",
-     0,NULL,getKeyRequestsBitField,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"setrange",setrangeCommand,4,
      "write use-memory @string @swap_string",
@@ -147,27 +148,27 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"rpop",rpopCommand,-2,
      "write fast @list @swap_list",
-     0,NULL,getKeyRequestsRpop,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lpop",lpopCommand,-2,
      "write fast @list @swap_list",
-     0,NULL,getKeyRequestsLpop,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"brpop",brpopCommand,-3,
      "write no-script @list @blocking @swap_list",
-     0,NULL,getKeyRequestsBrpop,SWAP_IN,0,1,-2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"brpoplpush",brpoplpushCommand,4,
      "write use-memory no-script @list @blocking @swap_list ",
-     0,NULL,getKeyRequestsRpoplpush,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"blmove",blmoveCommand,6,
      "write use-memory no-script @list @blocking @swap_list",
-     0,NULL,getKeyRequestsLmove,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking @swap_list",
-     0,NULL,getKeyRequestsBlpop,SWAP_IN,0,1,-2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"llen",llenCommand,2,
      "read-only fast @list @swap_list",
@@ -175,19 +176,19 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"lindex",lindexCommand,3,
      "read-only @list @swap_list",
-     0,NULL,getKeyRequestsLindex,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lset",lsetCommand,4,
      "write use-memory @list @swap_list",
-     0,NULL,getKeyRequestsLset,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lrange",lrangeCommand,4,
      "read-only @list @swap_list",
-     0,NULL,getKeyRequestsLrange,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"ltrim",ltrimCommand,4,
      "write @list @swap_list",
-     0,NULL,getKeyRequestsLtrim,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lpos",lposCommand,-3,
      "read-only @list @swap_list",
@@ -199,32 +200,32 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"rpoplpush",rpoplpushCommand,3,
      "write use-memory @list @swap_list",
-     0,NULL,getKeyRequestsRpoplpush,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"lmove",lmoveCommand,5,
      "write use-memory @list @swap_list",
-     0,NULL,getKeyRequestsLmove,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"sadd",saddCommand,-3,
      "write use-memory fast @set @swap_set",
-     0,NULL,getKeyRequestsSadd,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"srem",sremCommand,-3,
      "write fast @set @swap_set",
-     0,NULL,getKeyRequestsSrem,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
-    /* smove cmd intention flags set by getKeyRequestSmove */
+    /* smove - intention flags determined by swapGetKeyRole */
     {"smove",smoveCommand,4,
      "write fast @set @swap_set",
-     0,NULL,getKeyRequestSmove,SWAP_IN,0,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"sismember",sismemberCommand,3,
      "read-only fast @set @swap_set",
-     0,NULL,getKeyRequestSmembers,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"smismember",smismemberCommand,-3,
      "read-only fast @set @swap_set",
-     0,NULL,getKeyRequestSmembers,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"scard",swap_scardCommand,2,
      "read-only fast @set @swap_set",
@@ -244,7 +245,7 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set @swap_set",
-     0,NULL,getKeyRequestsSinterstore,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sunion",sunionCommand,-2,
      "read-only to-sort @set @swap_set",
@@ -252,7 +253,7 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"sunionstore",sunionstoreCommand,-3,
      "write use-memory @set @swap_set",
-     0,NULL,getKeyRequestsSunionstore,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sdiff",sdiffCommand,-2,
      "read-only to-sort @set @swap_set",
@@ -260,7 +261,7 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"sdiffstore",sdiffstoreCommand,-3,
      "write use-memory @set @swap_set",
-     0,NULL,getKeyRequestsSdiffstore,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"smembers",sinterCommand,2,
      "read-only to-sort @set @swap_set",
@@ -272,15 +273,15 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
     /*  (zset type) write command flag should be SWAP_IN_DEL, Because the index (score_cf data) needs to be deleted */
     {"zadd",zaddCommand,-4,
      "write use-memory fast @sortedset @swap_zset",
-     0,NULL,getKeyRequestsZAdd,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zincrby",zincrbyCommand,4,
      "write use-memory fast @sortedset @swap_zset",
-     0,NULL,getKeyRequestsZincrby,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zrem",zremCommand,-3,
      "write fast @sortedset @swap_zset",
-     0,NULL,getKeyRequestsZrem,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zremrangebyscore",zremrangebyscoreCommand,4,
      "write @sortedset @swap_zset",
@@ -296,15 +297,15 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset @swap_zset @swap_set",
-     0,zunionInterDiffStoreGetKeys,getKeyRequestsZunionstore,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset @swap_zset @swap_set",
-     0,zunionInterDiffStoreGetKeys,getKeyRequestsZinterstore,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zdiffstore",zdiffstoreCommand,-4,
      "write use-memory @sortedset @swap_zset @swap_set",
-     0,zunionInterDiffStoreGetKeys,getKeyRequestsZdiffstore,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"zunion",zunionCommand,-3,
      "read-only @sortedset @swap_zset @swap_set",
@@ -360,11 +361,11 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"zscore",zscoreCommand,3,
      "read-only fast @sortedset @swap_zset",
-     0,NULL,getKeyRequestsZScore,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zmscore",zmscoreCommand,-3,
      "read-only fast @sortedset @swap_zset",
-     0,NULL,getKeyRequestsZMScore,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrank",zrankCommand,3,
      "read-only fast @sortedset @swap_zset",
@@ -388,11 +389,11 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"bzpopmin",bzpopminCommand,-3,
      "write no-script fast @sortedset @blocking @swap_zset",
-     0,NULL,getKeyRequestsZpopMin,SWAP_IN,SWAP_IN_DEL,1,-2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-2,1,0,0,0},
 
     {"bzpopmax",bzpopmaxCommand,-3,
      "write no-script fast @sortedset @blocking @swap_zset",
-     0,NULL,getKeyRequestsZpopMax,SWAP_IN,SWAP_IN_DEL,1,-2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,-2,1,0,0,0},
 
     {"zrandmember",zrandmemberCommand,-2,
      "read-only random @sortedset @swap_zset",
@@ -400,35 +401,35 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"hset",hsetCommand,-4,
      "write use-memory fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHset,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hsetnx",hsetnxCommand,4,
      "write use-memory fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHsetnx,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hget",hgetCommand,3,
      "read-only fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHget,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hmset",hsetCommand,-4,
      "write use-memory fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHset,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hmget",hmgetCommand,-3,
      "read-only fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHmget,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hincrby",hincrbyCommand,4,
      "write use-memory fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHincrby,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hincrbyfloat",hincrbyfloatCommand,4,
      "write use-memory fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHincrbyfloat,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hdel",hdelCommand,-3,
      "write fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHdel,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"hlen",hlenCommand,2,
      "read-only fast @hash @swap_hash",
@@ -436,7 +437,7 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"hstrlen",hstrlenCommand,3,
      "read-only fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHstrlen,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hkeys",hkeysCommand,2,
      "read-only to-sort @hash @swap_hash",
@@ -452,7 +453,7 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"hexists",hexistsCommand,3,
      "read-only fast @hash @swap_hash",
-     0,NULL,getKeyRequestsHexists,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hrandfield",hrandfieldCommand,-2,
      "read-only random @hash @swap_hash",
@@ -803,7 +804,7 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"geoadd",geoaddCommand,-5,
      "write use-memory @geo @swap_zset",
-     0,NULL,getKeyRequestsGeoAdd,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     /* GEORADIUS has store options that may write. */
     {"georadius",georadiusCommand,-6,
@@ -816,7 +817,7 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"georadiusbymember",georadiusbymemberCommand,-5,
      "write use-memory @geo @swap_zset",
-     0,georadiusGetKeys,getKeyRequestsGeoRadiusByMember,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
+     0,georadiusGetKeys,getKeyRequestsGeoRadius,SWAP_IN,SWAP_IN_DEL,1,1,1,0,0,0},
 
     {"georadiusbymember_ro",georadiusbymemberroCommand,-5,
      "read-only @geo @swap_zset",
@@ -824,15 +825,15 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"geohash",geohashCommand,-2,
      "read-only @geo @swap_zset",
-     0,NULL,getKeyRequestsGeoHash,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geopos",geoposCommand,-2,
      "read-only @geo @swap_zset",
-     0,NULL,getKeyRequestsGeoPos,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geodist",geodistCommand,-4,
      "read-only @geo @swap_zset",
-     0,NULL,getKeyRequestsGeoDist,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geosearch",geosearchCommand,-7,
      "read-only @geo @swap_zset",
@@ -840,7 +841,7 @@ struct redisCommand redisCommandTable[SWAP_CMD_COUNT] = {
 
     {"geosearchstore",geosearchstoreCommand,-8,
      "write use-memory @geo @swap_zset",
-      0,NULL,getKeyRequestsGeoSearchStore,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
+      0,NULL,NULL,SWAP_IN,SWAP_IN_DEL,1,2,1,0,0,0},
 
     {"pfselftest",pfselftestCommand,1,
      "admin @hyperloglog @swap_string",
@@ -1037,7 +1038,7 @@ uint64_t SwapCommandDataTypeFlagByName(const char *name) {
     return 0; /* No match. */
 }
 /* ----------------------------- swaps result ----------------------------- */
-/* Prepare the getKeyRequestsResult struct to hold numswaps, either by using
+/* Prepare the NULL struct to hold numswaps, either by using
  * the pre-allocated swaps or by allocating a new array on the heap.
  *
  * This function must be called at least once before starting to populate
@@ -1354,32 +1355,190 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result) {
     }
 }
 
+/* ====== swapOnKey bridge: cmdparse → getKeyRequestsResult ====== */
+
+typedef struct {
+    getKeyRequestsResult *result;
+} swapCmdParseCtx;
+
+static int swapGetKeyRole(struct redisCommand *cmd, int key_arg_idx) {
+    /* SMOVE: argv[1]=source(SWAP_IN_DEL), argv[2]=dest(0) */
+    if (cmd->proc == smoveCommand) {
+        return (key_arg_idx == 1) ? SWAP_IN_DEL : 0;
+    }
+    /* SUNIONSTORE/SINTERSTORE/SDIFFSTORE: argv[1]=dest(SWAP_IN_DEL), argv[2+]=src(0) */
+    if (cmd->proc == sunionstoreCommand || cmd->proc == sinterstoreCommand || cmd->proc == sdiffstoreCommand) {
+        return (key_arg_idx == 1) ? SWAP_IN_DEL : 0;
+    }
+    /* ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE: argv[1]=dest(SWAP_IN_DEL), argv[2+]=src(0) */
+    if (cmd->proc == zunionstoreCommand || cmd->proc == zinterstoreCommand || cmd->proc == zdiffstoreCommand) {
+        return (key_arg_idx == 1) ? SWAP_IN_DEL : 0;
+    }
+    /* GEOSEARCHSTORE: argv[1]=dest(SWAP_IN_DEL), argv[2]=src(0) */
+    if (cmd->proc == geosearchstoreCommand) {
+        return (key_arg_idx == 1) ? SWAP_IN_DEL : 0;
+    }
+    /* ZRANGESTORE: argv[1]=dest(SWAP_IN_DEL), argv[2]=src(0) */
+    if (cmd->proc == zrangestoreCommand) {
+        return (key_arg_idx == 1) ? SWAP_IN_DEL : 0;
+    }
+    /* BITOP: argv[2]=dest(SWAP_IN_DEL), argv[3+]=src(0) */
+    if (cmd->proc == bitopCommand) {
+        return (key_arg_idx == 2) ? SWAP_IN_DEL : 0;
+    }
+    /* RPOPLPUSH/LMOVE/BRPOPLPUSH/BLMOVE: argv[1]=src(0), argv[2]=dest(SWAP_IN_META) */
+    if (cmd->proc == rpoplpushCommand || cmd->proc == lmoveCommand ||
+        cmd->proc == brpoplpushCommand || cmd->proc == blmoveCommand) {
+        return (key_arg_idx == 2) ? SWAP_IN_META : 0;
+    }
+    return cmd->intention_flags;
+}
+
+/* 
+    The dest key needs to be marked with
+    CMD_SWAP_DATATYPE_KEYSPACE
+    because the dest key may not exist. 
+*/
+static uint64_t swapGetKeyFlags(struct redisCommand *cmd, int key_arg_idx) {
+    /* ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE: argv[1] is dest key */
+    if (cmd->proc == zunionstoreCommand || cmd->proc == zinterstoreCommand || cmd->proc == zdiffstoreCommand) {
+        return (key_arg_idx == 1) ? cmd->flags | CMD_SWAP_DATATYPE_KEYSPACE : cmd->flags;
+    }
+    /* GEOSEARCHSTORE: argv[1] is dest key, may not exist or be any type */
+    if (cmd->proc == geosearchstoreCommand) {
+        return (key_arg_idx == 1) ? cmd->flags | CMD_SWAP_DATATYPE_KEYSPACE : cmd->flags;
+    }
+    /* ZRANGESTORE: argv[1] is dest key, may not exist or be any type */
+    if (cmd->proc == zrangestoreCommand) {
+        return (key_arg_idx == 1) ? cmd->flags | CMD_SWAP_DATATYPE_KEYSPACE : cmd->flags;
+    }
+    /* SINTERSTORE/SUNIONSTORE/SDIFFSTORE: argv[1] is dest key */
+    if (cmd->proc == sinterstoreCommand || cmd->proc == sunionstoreCommand || cmd->proc == sdiffstoreCommand) {
+        return (key_arg_idx == 1) ? cmd->flags | CMD_SWAP_DATATYPE_KEYSPACE : cmd->flags;
+    }
+    /* BITOP: argv[2] is dest key  */
+    if (cmd->proc == bitopCommand) {
+        return (key_arg_idx == 2) ? cmd->flags | CMD_SWAP_DATATYPE_KEYSPACE : cmd->flags;
+    }
+    /* RPOPLPUSH/LMOVE/BRPOPLPUSH/BLMOVE: argv[2] is dest key */
+    if (cmd->proc == rpoplpushCommand || cmd->proc == lmoveCommand ||
+        cmd->proc == brpoplpushCommand || cmd->proc == blmoveCommand) {
+        return (key_arg_idx == 2) ? cmd->flags | CMD_SWAP_DATATYPE_KEYSPACE : cmd->flags;
+    }
+    return cmd->flags;
+}
+
+/*  cmdparse key/subkey => getKeyRequestsResult  */
+static void swapOnKey(void *ctx, int dbid, struct redisCommand* cmd, robj** argv, int argc, int key_arg_idx,
+                      int subkeys_count, int subkeys_start,
+                      int subkeys_step, const int *subkey_arg_idxs,
+                      const cmdParseKeyExtra *extra) {
+    swapCmdParseCtx *sctx = (swapCmdParseCtx *)ctx;
+    getKeyRequestsResult *result = sctx->result;
+    int intention = cmd->intention;
+    int intention_flags = swapGetKeyRole(cmd, key_arg_idx);
+    uint64_t cmd_flags = swapGetKeyFlags(cmd, key_arg_idx);
+
+    if (extra && extra->extra_type != CMDPARSE_EXTRA_NONE) {
+        switch (extra->extra_type) {
+        case CMDPARSE_EXTRA_RANGE: {
+            /* List  RANGE：LRANGE/LTRIM/LPOP/RPOP/LINDEX/BLPOP/BRPOP */
+            robj *key = argv[key_arg_idx];
+            incrRefCount(key);
+            range *ranges = zmalloc(sizeof(range));
+            ranges->start = extra->range.start;
+            ranges->end = extra->range.end;
+            ranges->reverse = extra->range.reverse;
+            /* arg_rewrite 标记 argv 中 range 参数的位置，用于负索引重写 */
+            int arg_rewrite0 = extra->range.arg_rewrite0;
+            int arg_rewrite1 = extra->range.arg_rewrite1;
+            getKeyRequestsAppendRangeResult(result, REQUEST_LEVEL_KEY, key,
+                    arg_rewrite0, arg_rewrite1, 1, ranges,
+                    intention, intention_flags, cmd_flags, dbid);
+            return;
+        }
+        case CMDPARSE_EXTRA_ZSCORE: {
+            /* ZSET SCORE RANGE：ZRANGEBYSCORE/ZREVRANGEBYSCORE/ZREMRANGEBYSCORE */
+            robj *key = argv[key_arg_idx];
+            incrRefCount(key);
+            zrangespec *spec = zmalloc(sizeof(zrangespec));
+            spec->min = extra->zscore.min;
+            spec->max = extra->zscore.max;
+            spec->minex = extra->zscore.minex;
+            spec->maxex = extra->zscore.maxex;
+            getKeyRequestsAppendScoreResult(result, REQUEST_LEVEL_KEY, key,
+                    extra->zscore.reverse, spec, 0,
+                    intention, intention_flags, cmd_flags, dbid);
+            return;
+        }
+        // case CMDPARSE_EXTRA_BITOFF: {
+        //     /* Bitmap OFFSET：SETBIT/GETBIT */
+        //     getKeyRequestsSingleKeyWithBitmapOffset(dbid, cmd, argv,
+        //             argc, result, key_arg_idx, 2,
+        //             extra->bitoff.offset);
+        //     return;
+        // }
+        // case CMDPARSE_EXTRA_BITRNG: {
+        //     /* Bitmap RANGE：BITCOUNT/BITPOS */
+        //     getKeyRequestsSingleKeyWithBitmapRange(dbid, cmd, argv,
+        //             argc, result, key_arg_idx,
+        //             extra->bitrng.start, extra->bitrng.end);
+        //     return;
+        // }
+        default:
+            break;  /* ZRANK/ZLEX 等 fall through 到 key+subkey 处理 */
+        }
+    }
+
+    /* has subkey (hash field, set member, zset member ...） */
+    if (subkeys_count > 0) {
+        robj *key = argv[key_arg_idx];
+        incrRefCount(key);
+        robj **subkeys = zmalloc(subkeys_count * sizeof(robj *));
+        for (int i = 0; i < subkeys_count; i++) {
+            int idx = subkey_arg_idxs ? subkey_arg_idxs[i]
+                                      : subkeys_start + i * subkeys_step;
+            robj *subkey = argv[idx];
+            incrRefCount(subkey);
+            subkeys[i] = subkey;
+        }
+        getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, key,
+                subkeys_count, subkeys,
+                intention, intention_flags, cmd_flags, dbid);
+        return;
+    }
+
+    /* 简单单键：统一使用 SUBKEY(0) 而非 KEY 类型。
+     * swapDataAna 按数据实际类型路由到不同 swapAna 函数（如 setSwapAna），
+     * 这些函数都断言 type 为 SUBKEY/SAMPLE 等，不接受 KEY 类型。
+     * 使用 0 子键的 SUBKEY 请求即是全键操作语义。 */
+    // only key
+    {
+        robj *key = argv[key_arg_idx];
+        incrRefCount(key);
+        getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, key,
+                0, NULL, intention, intention_flags, cmd_flags, dbid);
+    }
+}
+
 /* NOTE that result.{key,subkeys} are ONLY REFS to client argv (since client
  * outlives getKeysResult if no swap action happend. key, subkey will be
   * copied (using incrRefCount) when async swap acutally proceed. */
 static int _getSingleCmdKeyRequests(int dbid, struct redisCommand* cmd,
         robj** argv, int argc, getKeyRequestsResult *result) {
-    if (cmd->getkeyrequests_proc == NULL) {
-        int i, numkeys;
-        getKeysResult keys = GETKEYS_RESULT_INIT;
-        /* whole key swaping, swaps defined by command arity. */
-        numkeys = getKeysFromCommand(cmd,argv,argc,&keys);
-        getKeyRequestsPrepareResult(result,result->num+numkeys);
-        for (i = 0; i < numkeys; i++) {
-            robj *key = argv[keys.keys[i]];
-
-            incrRefCount(key);
-            getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
-                    cmd->intention,cmd->intention_flags,cmd->flags, dbid);
-        }
-        getKeysFreeResult(&keys);
-        return 0;
+    /* ====== 特殊命令：保持原有的 getkeyrequests_proc ====== */
+    if (cmd->getkeyrequests_proc != NULL) {
+        return cmd->getkeyrequests_proc(dbid,cmd,argv,argc,result);
     } else if (cmd->flags & CMD_MODULE) {
         /* TODO support module */
+        return 0;
     } else {
-        return cmd->getkeyrequests_proc(dbid,cmd,argv,argc,result);
+        swapCmdParseCtx ctx = {
+            .result = result,
+        };
+        cmdParseKeys(dbid, cmd, argv, argc, &ctx, swapOnKey);
+        return 0;
     }
-    return 0;
 }
 
 static void getSingleCmdKeyRequests(client *c, getKeyRequestsResult *result) {
@@ -1574,110 +1733,26 @@ int getKeyRequestsSort(int dbid, struct redisCommand *cmd, robj **argv,
     return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, storekeyIndex, 1, 1);
 }
 
-int getKeyRequestsZunionInterDiffGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc,
-        struct getKeyRequestsResult *result, int op) {
-    UNUSED(op);
-    long long setnum;
-    if (getLongLongFromObject(argv[2], &setnum) != C_OK) {
-        return C_ERR;
-    }
-    if (setnum < 1 || setnum + 3 > argc) {
-        return C_ERR;
-    }
-
-    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 1, 3, 2 + setnum);
-}
-
-int getKeyRequestsZunionstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsZunionInterDiffGeneric(dbid, cmd, argv, argc, result, SET_OP_UNION);
-}
-
-int getKeyRequestsZinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsZunionInterDiffGeneric(dbid, cmd, argv, argc, result, SET_OP_INTER);
-}
-int getKeyRequestsZdiffstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsZunionInterDiffGeneric(dbid, cmd, argv, argc, result, SET_OP_DIFF);
-}
-
-#define GETKEYS_RESULT_SUBKEYS_INIT_LEN 8
-#define GETKEYS_RESULT_SUBKEYS_LINER_LEN 1024
-
-int getKeyRequestsSingleKeyWithSubkeys(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result,
-        int key_index, int first_subkey, int last_subkey, int subkey_step) {
-    int i, num = 0, capacity = GETKEYS_RESULT_SUBKEYS_INIT_LEN;
-    robj *key, **subkeys = NULL;
-    UNUSED(cmd);
-
-    subkeys = zmalloc(capacity*sizeof(robj*));
-    getKeyRequestsPrepareResult(result,result->num+1);
-
-    key = argv[key_index];
-    incrRefCount(key);
-
-    if (last_subkey < 0) last_subkey += argc;
-    for (i = first_subkey; i <= last_subkey; i += subkey_step) {
-        robj *subkey = argv[i];
-        if (num >= capacity) {
-            if (capacity < GETKEYS_RESULT_SUBKEYS_LINER_LEN)
-                capacity *= 2;
-            else
-                capacity += GETKEYS_RESULT_SUBKEYS_LINER_LEN;
-
-            subkeys = zrealloc(subkeys, capacity*sizeof(robj*));
+int getKeyRequestsGeoRadius(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
+    int storekeyIndex = -1;
+    for(int i =0; i < argc; i++) {
+        if (!strcasecmp(argv[i]->ptr, "store") && (i+1) < argc) {
+            storekeyIndex = i+1;
+            i++;
+        } else if(!strcasecmp(argv[i]->ptr, "storedist") && (i+1) < argc) {
+            storekeyIndex = i+1;
+            i++;
         }
-        incrRefCount(subkey);
-        subkeys[num++] = subkey;
     }
-    getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,num,subkeys,
-            cmd->intention,cmd->intention_flags,cmd->flags, dbid);
-
-    return 0;
+    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, storekeyIndex, 1, 1);
 }
 
-int getKeyRequestsHset(int dbid,struct redisCommand *cmd, robj **argv, int argc,
-        struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(dbid,cmd,argv,argc,result,1,2,-1,2);
-}
 
-int getKeyRequestsHmget(int dbid, struct redisCommand *cmd, robj **argv, int argc,
-        struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(dbid,cmd,argv,argc,result,1,2,-1,1);
-}
 
-int getKeyRequestSmembers(int dbid, struct redisCommand *cmd, robj **argv, int argc,
-                          struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(dbid,cmd,argv,argc,result,1,2,-1,1);
-}
 
-int getKeyRequestSmove(int dbid, struct redisCommand *cmd, robj **argv, int argc,
-                       struct getKeyRequestsResult *result) {
-    robj** subkeys;
 
-    UNUSED(argc), UNUSED(cmd);
 
-    getKeyRequestsPrepareResult(result, result->num + 2);
 
-    incrRefCount(argv[1]);
-    incrRefCount(argv[3]);
-    subkeys = zmalloc(sizeof(robj*));
-    subkeys[0] = argv[3];
-    getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,argv[1], 1, subkeys,
-                               SWAP_IN, SWAP_IN_DEL, cmd->flags, dbid);
-
-    incrRefCount(argv[2]);
-    incrRefCount(argv[3]);
-    subkeys = zmalloc(sizeof(robj*));
-    subkeys[0] = argv[3];
-    getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,argv[2], 1, subkeys,
-                               SWAP_IN, 0, cmd->flags, dbid);
-
-    return 0;
-}
-
-int getKeyRequestsSinterstore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 1, 2, -1);
-}
 
 /* Key */
 void getKeyRequestsSingleKey(getKeyRequestsResult *result,
@@ -1702,6 +1777,7 @@ void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level,
     key_request->arg_rewrite[0].arg_idx = arg_rewrite0;
     key_request->arg_rewrite[1].arg_idx = arg_rewrite1;
 }
+
 
 /* There are no command with more than 2 ranges request. */
 #define GETKEYS_RESULT_SEGMENTS_MAX_LEN 2
@@ -1796,170 +1872,154 @@ int getKeyRequestsSingleKeyWithBitmapRange(int dbid, struct redisCommand *cmd, r
 
     return 0;
 }
+/** geo **/
 
-int getKeyRequestsLpop(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    long long count = 1, value;
 
-    if (argc >= 3) {
-        if (getLongLongFromObject(argv[2],&value) == C_OK)
-            count = value;
+
+
+
+static inline void getKeyRequestsGtidArgRewriteAdjust(
+        struct getKeyRequestsResult *result, int orig_krs_num, int start_index) {
+    for (int i = orig_krs_num; i < result->num; i++) {
+        keyRequest *kr = result->key_requests+i;
+        if (kr->arg_rewrite[0].arg_idx > 0) kr->arg_rewrite[0].arg_idx += start_index;
+        if (kr->arg_rewrite[1].arg_idx > 0) kr->arg_rewrite[1].arg_idx += start_index;
     }
-
-    getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-            result,1,-1,-1,1/*num_ranges*/,0L,(long)count,(int)0);
-    return 0;
-
 }
 
-int getKeyRequestsBlpop(int dbid, struct redisCommand *cmd, robj **argv,
+int getKeyRequestsGtid(int dbid, struct redisCommand *cmd, robj **argv,
         int argc, struct getKeyRequestsResult *result) {
-    for (int i = 1; i < argc-1; i++) {
-        getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-                result,i,-1,-1,1/*num_ranges*/,0L,0L,(int)0);
-    }
-    return 0;
-}
+    int start_index, exec_dbid, orig_num;
+    struct redisCommand* exec_cmd;
+    long long value;
 
-int getKeyRequestsRpop(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    long long count = 1, value;
+    UNUSED(dbid), UNUSED(cmd);
 
-    if (argc >= 3) {
-        if (getLongLongFromObject(argv[2],&value) == C_OK)
-            count = value;
-    }
+    if (getLongLongFromObject(argv[2],&value)) return C_ERR;
+    if (value < 0 || value > server.dbnum)  return C_ERR;
+    exec_dbid = (int)value;
 
-    getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-            result,1,-1,-1,1/*num_ranges*/,(long)-count,-1L,(int)0);
-    return 0;
-}
+    if (strncmp(argv[3]->ptr, "/*", 2))
+        start_index = 3;
+    else
+        start_index = 4;
 
-int getKeyRequestsBrpop(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    for (int i = 1; i < argc-1; i++) {
-        getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-                result,i,-1,-1,1/*num_ranges*/,-1L,-1L,(int)0);
-    }
-    return 0;
-}
+    orig_num = result->num;
 
-int getKeyRequestsRpoplpush(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-            result,1,-1,-1,1/*num_ranges*/,-1L,-1L,(int)0); /* source */
-    getKeyRequestsSingleKey(result,argv[2],SWAP_IN,SWAP_IN_META,cmd->flags | CMD_SWAP_DATATYPE_KEYSPACE,dbid);
-    return 0;
-}
+    exec_cmd = lookupCommandByCString(argv[start_index]->ptr);
+    if (_getSingleCmdKeyRequests(exec_dbid,exec_cmd,argv+start_index,
+            argc-start_index,result)) return C_ERR;
 
-int getKeyRequestsLmove(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    long start, end;
-    if ((argc != 5/*lmove*/ && argc != 6/*blmove*/) ||
-        (strcasecmp(argv[3]->ptr,"left") && strcasecmp(argv[3]->ptr,"right")) ||
-        (strcasecmp(argv[4]->ptr,"left") && strcasecmp(argv[4]->ptr,"right"))) {
-        return -1;
-    }
-
-    if (!strcasecmp(argv[3]->ptr,"left")) {
-        start = 0, end = 0;
-    } else {
-        start = -1, end = -1;
-    }
-    /* source */
-    getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-            result,1,-1,-1,1/*num_ranges*/,start,end,(int)0);
-    /* destination */
-    getKeyRequestsSingleKey(result,argv[2],SWAP_IN,SWAP_IN_META,cmd->flags,dbid);
-    return 0;
-}
-
-int getKeyRequestsLindex(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    long long index;
-    if (getLongLongFromObject(argv[2],&index) != C_OK) return -1;
-    getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-            result,1,2,-1,1/*num_ranges*/,(long)index,(long)index,(int)0);
-    return 0;
-}
-
-int getKeyRequestsLrange(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    long long start, end;
-    if (getLongLongFromObject(argv[2],&start) != C_OK) return -1;
-    if (getLongLongFromObject(argv[3],&end) != C_OK) return -1;
-    getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-            result,1,2,3,1/*num_ranges*/,(long)start,(long)end,(int)0);
-    return 0;
-}
-
-int getKeyRequestsLtrim(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    long long start, stop;
-    if (getLongLongFromObject(argv[2],&start) != C_OK) return -1;
-    if (getLongLongFromObject(argv[3],&stop) != C_OK) return -1;
-    getKeyRequestsSingleKeyWithRanges(dbid,cmd,argv,argc,
-            result,1,2,3,1/*num_ranges*/,(long)start,(long)stop,(int)1/*reverse*/);
-    return 0;
-}
-/** zset **/
-int getKeyRequestsZAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    int first_score = 2;
-    while(first_score < argc) {
-        char *opt = argv[first_score]->ptr;
-        if (
-            strcasecmp(opt,"nx") != 0 &&
-            strcasecmp(opt,"xx") != 0 &&
-            strcasecmp(opt,"ch") != 0 &&
-            strcasecmp(opt,"incr") != 0 &&
-            strcasecmp(opt,"gt") != 0 &&
-            strcasecmp(opt,"lt") != 0
-        ) {
-            break;
-        }
-        first_score++;
-    }
-    return getKeyRequestsSingleKeyWithSubkeys(dbid, cmd, argv, argc, result, 1, first_score + 1, -1, 2);
-}
-
-int getKeyRequestsZScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(dbid, cmd,argv,argc,result,1,2,-1,1);
-}
-
-int getKeyRequestsZincrby(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(dbid, cmd, argv, argc, result, 1, 3, -1, 2);
-}
-
-int getKeyRequestsZMScore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(dbid, cmd, argv, argc, result, 1, 2, -1, 1);
-}
-
-#define ZMIN -1
-#define ZMAX 1
-int getKeyRequestsZpopGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, int flags) {
-    UNUSED(cmd), UNUSED(flags);
-    getKeyRequestsPrepareResult(result,result->num+ argc - 2);
-    for(int i = 1; i < argc - 1; i++) {
-        incrRefCount(argv[i]);
-        getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, argv[i], 0, NULL, cmd->intention,
-            cmd->intention_flags, cmd->flags, dbid);
-    }
+    getKeyRequestsGtidArgRewriteAdjust(result,orig_num,start_index);
     return C_OK;
 }
 
-int getKeyRequestsZpopMin(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsZpopGeneric(dbid, cmd, argv, argc, result, ZMIN);
+int getKeyRequestsDebug(int dbid, struct redisCommand *cmd, robj **argv,
+        int argc, struct getKeyRequestsResult *result) {
+    robj *key;
+    if (!strcasecmp(argv[1]->ptr,"reload") ||
+            !strcasecmp(argv[1]->ptr,"loadaof") ||
+            !strcasecmp(argv[1]->ptr,"digest") ||
+            !strcasecmp(argv[1]->ptr,"change-repl-id")) {
+        return getKeyRequestsGlobal(dbid,cmd,argv,argc,result);
+    } else if (argc == 3 && (!strcasecmp(argv[1]->ptr,"object") ||
+                !strcasecmp(argv[1]->ptr, "ziplist") ||
+                !strcasecmp(argv[1]->ptr, "sdslen"))) {
+        key = argv[2];
+        incrRefCount(key);
+        getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
+                cmd->intention,cmd->intention_flags,cmd->flags,dbid);
+        return 0;
+    } else if (argc >= 3 && (!strcasecmp(argv[1]->ptr,"mallctl") ||
+                !strcasecmp(argv[1]->ptr,"mallctl-str"))) {
+        key = argv[2];
+        incrRefCount(key);
+        getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
+                cmd->intention,cmd->intention_flags,cmd->flags,dbid);
+        return 0;
+    } else if (argc >= 3 && !strcasecmp(argv[1]->ptr,"digest-value")) {
+        for (int i = 2; i < argc; i++) {
+            key = argv[i];
+            incrRefCount(key);
+            getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
+                    cmd->intention,cmd->intention_flags,cmd->flags, dbid);
+        }
+        return 0;
+    } else {
+        return getKeyRequestsNone(dbid,cmd,argv,argc,result);
+    }
 }
 
-int getKeyRequestsZpopMax(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsZpopGeneric(dbid, cmd, argv, argc, result, ZMAX);
+
+
+int getKeyRequestsBitop(int dbid, struct redisCommand *cmd, robj **argv,
+                        int argc, struct getKeyRequestsResult *result) {
+    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 2, 3, -1);
 }
 
+
+int getKeyRequestsBitcount(int dbid, struct redisCommand *cmd, robj **argv,
+                         int argc, struct getKeyRequestsResult *result) {
+    long long start, end;
+
+    if (argc < 4) {
+        /* BITCOUNT key [start end], both start and end may not exist. */
+        getKeyRequestsSingleKey(result,argv[1],SWAP_IN,0,cmd->flags,dbid);
+    } else {
+        if (getLongLongFromObject(argv[2],&start) != C_OK) return -1;
+        if (getLongLongFromObject(argv[3],&end) != C_OK) return -1;
+        getKeyRequestsSingleKeyWithBitmapRange(dbid,cmd,argv,argc,
+                result,1,start,end);
+    }
+    return 0;
+}
+
+int getKeyRequestsBitpos(int dbid, struct redisCommand *cmd, robj **argv,
+                         int argc, struct getKeyRequestsResult *result) {
+    long long start, end;
+    /* BITPOS key bit [start [end] ], start or end may not exist.  */
+    if (argc <= 3) {
+        getKeyRequestsSingleKey(result,argv[1],SWAP_IN,0,cmd->flags,dbid);
+    } else if (argc == 4) {
+        if (getLongLongFromObject(argv[3],&start) != C_OK) return -1;
+
+        /* max size of bitmap is 512MB, last possible bit (equal to 2^32 - 1, UINT_MAX),
+         * start and end specify a byte index, UINT_MAX could cover the range. */
+        getKeyRequestsSingleKeyWithBitmapRange(dbid,cmd,argv,argc,
+                result,1,start,UINT_MAX);
+    } else {
+        if (getLongLongFromObject(argv[3],&start) != C_OK) return -1;
+        if (getLongLongFromObject(argv[4],&end) != C_OK) return -1;
+        getKeyRequestsSingleKeyWithBitmapRange(dbid,cmd,argv,argc,
+                result,1,start,end);
+    }
+    return 0;
+}
+
+int getKeyRequestsSetbit(int dbid, struct redisCommand *cmd, robj **argv,
+                         int argc, struct getKeyRequestsResult *result) {
+    long long offset;
+    if (getLongLongFromObject(argv[2],&offset) != C_OK) return -1;
+    getKeyRequestsSingleKeyWithBitmapOffset(dbid,cmd,argv,argc,
+                                      result,1,2,
+                                      offset);
+    return 0;
+}
+
+int getKeyRequestsGetbit(int dbid, struct redisCommand *cmd, robj **argv,
+                         int argc, struct getKeyRequestsResult *result) {
+    long long offset;
+    if (getLongLongFromObject(argv[2],&offset) != C_OK) return -1;
+    getKeyRequestsSingleKeyWithBitmapOffset(dbid,cmd,argv,argc,
+            result,1,2,offset);
+    return 0;
+}
+
+
+/* zset */
 int getKeyRequestsZrangestore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
     return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 1, 2, 2);
 }
-
-
 typedef enum {
     ZRANGE_DIRECTION_AUTO = 0,
     ZRANGE_DIRECTION_FORWARD,
@@ -1971,8 +2031,6 @@ typedef enum {
     ZRANGE_SCORE,
     ZRANGE_LEX,
 } zrange_type;
-
-int zslParseRange(robj *min, robj *max, zrangespec *spec);
 int getKeyRequestsZrangeGeneric(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, zrange_type rangetype, zrange_direction direction) {
     if (argc < 4) return C_ERR;
     robj *minobj ,*maxobj;
@@ -2068,190 +2126,6 @@ int getKeyRequestsZlexCount(int dbid, struct redisCommand *cmd, robj **argv, int
 
 int getKeyRequestsZremRangeByLex(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
     return getKeyRequestsZrangeGeneric(dbid, cmd, argv, argc, result, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
-}
-/** geo **/
-int getKeyRequestsGeoAdd(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    int first_score = 2;
-    while(first_score < argc) {
-        char *opt = argv[first_score]->ptr;
-        if (
-            strcasecmp(opt,"nx") != 0 &&
-            strcasecmp(opt,"xx") != 0 &&
-            strcasecmp(opt,"ch") != 0
-        ) {
-            break;
-        }
-        first_score++;
-    }
-    return getKeyRequestsSingleKeyWithSubkeys(dbid, cmd, argv, argc, result, 1, first_score + 2, -1, 3);
-}
-
-int getKeyRequestsGeoDist(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(dbid, cmd, argv, argc, result, 1, 2, -2, 1);
-}
-
-int getKeyRequestsGeoHash(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsSingleKeyWithSubkeys(dbid, cmd, argv, argc, result, 1, 2, -1, 1);
-}
-
-int getKeyRequestsGeoRadius(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    int storekeyIndex = -1;
-    for(int i =0; i < argc; i++) {
-        if (!strcasecmp(argv[i]->ptr, "store") && (i+1) < argc) {
-            storekeyIndex = i+1;
-            i++;
-        } else if(!strcasecmp(argv[i]->ptr, "storedist") && (i+1) < argc) {
-            storekeyIndex = i+1;
-            i++;
-        }
-    }
-    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, storekeyIndex, 1, 1);
-}
-
-int getKeyRequestsGeoSearchStore(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 1, 2, 2);
-}
-
-static inline void getKeyRequestsGtidArgRewriteAdjust(
-        struct getKeyRequestsResult *result, int orig_krs_num, int start_index) {
-    for (int i = orig_krs_num; i < result->num; i++) {
-        keyRequest *kr = result->key_requests+i;
-        if (kr->arg_rewrite[0].arg_idx > 0) kr->arg_rewrite[0].arg_idx += start_index;
-        if (kr->arg_rewrite[1].arg_idx > 0) kr->arg_rewrite[1].arg_idx += start_index;
-    }
-}
-
-int getKeyRequestsGtid(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    int start_index, exec_dbid, orig_num;
-    struct redisCommand* exec_cmd;
-    long long value;
-
-    UNUSED(dbid), UNUSED(cmd);
-
-    if (getLongLongFromObject(argv[2],&value)) return C_ERR;
-    if (value < 0 || value > server.dbnum)  return C_ERR;
-    exec_dbid = (int)value;
-
-    if (strncmp(argv[3]->ptr, "/*", 2))
-        start_index = 3;
-    else
-        start_index = 4;
-
-    orig_num = result->num;
-
-    exec_cmd = lookupCommandByCString(argv[start_index]->ptr);
-    if (_getSingleCmdKeyRequests(exec_dbid,exec_cmd,argv+start_index,
-            argc-start_index,result)) return C_ERR;
-
-    getKeyRequestsGtidArgRewriteAdjust(result,orig_num,start_index);
-    return C_OK;
-}
-
-int getKeyRequestsDebug(int dbid, struct redisCommand *cmd, robj **argv,
-        int argc, struct getKeyRequestsResult *result) {
-    robj *key;
-    if (!strcasecmp(argv[1]->ptr,"reload") ||
-            !strcasecmp(argv[1]->ptr,"loadaof") ||
-            !strcasecmp(argv[1]->ptr,"digest") ||
-            !strcasecmp(argv[1]->ptr,"change-repl-id")) {
-        return getKeyRequestsGlobal(dbid,cmd,argv,argc,result);
-    } else if (argc == 3 && (!strcasecmp(argv[1]->ptr,"object") ||
-                !strcasecmp(argv[1]->ptr, "ziplist") ||
-                !strcasecmp(argv[1]->ptr, "sdslen"))) {
-        key = argv[2];
-        incrRefCount(key);
-        getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
-                cmd->intention,cmd->intention_flags,cmd->flags,dbid);
-        return 0;
-    } else if (argc >= 3 && (!strcasecmp(argv[1]->ptr,"mallctl") ||
-                !strcasecmp(argv[1]->ptr,"mallctl-str"))) {
-        key = argv[2];
-        incrRefCount(key);
-        getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
-                cmd->intention,cmd->intention_flags,cmd->flags,dbid);
-        return 0;
-    } else if (argc >= 3 && !strcasecmp(argv[1]->ptr,"digest-value")) {
-        for (int i = 2; i < argc; i++) {
-            key = argv[i];
-            incrRefCount(key);
-            getKeyRequestsAppendSubkeyResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
-                    cmd->intention,cmd->intention_flags,cmd->flags, dbid);
-        }
-        return 0;
-    } else {
-        return getKeyRequestsNone(dbid,cmd,argv,argc,result);
-    }
-}
-
-int getKeyRequestsSetbit(int dbid, struct redisCommand *cmd, robj **argv,
-                         int argc, struct getKeyRequestsResult *result) {
-    long long offset;
-    if (getLongLongFromObject(argv[2],&offset) != C_OK) return -1;
-    getKeyRequestsSingleKeyWithBitmapOffset(dbid,cmd,argv,argc,
-                                      result,1,2,
-                                      offset);
-    return 0;
-}
-
-int getKeyRequestsGetbit(int dbid, struct redisCommand *cmd, robj **argv,
-                         int argc, struct getKeyRequestsResult *result) {
-    long long offset;
-    if (getLongLongFromObject(argv[2],&offset) != C_OK) return -1;
-    getKeyRequestsSingleKeyWithBitmapOffset(dbid,cmd,argv,argc,
-            result,1,2,offset);
-    return 0;
-}
-
-int getKeyRequestsBitcount(int dbid, struct redisCommand *cmd, robj **argv,
-                         int argc, struct getKeyRequestsResult *result) {
-    long long start, end;
-
-    if (argc < 4) {
-        /* BITCOUNT key [start end], both start and end may not exist. */
-        getKeyRequestsSingleKey(result,argv[1],SWAP_IN,0,cmd->flags,dbid);
-    } else {
-        if (getLongLongFromObject(argv[2],&start) != C_OK) return -1;
-        if (getLongLongFromObject(argv[3],&end) != C_OK) return -1;
-        getKeyRequestsSingleKeyWithBitmapRange(dbid,cmd,argv,argc,
-                result,1,start,end);
-    }
-    return 0;
-}
-
-int getKeyRequestsBitpos(int dbid, struct redisCommand *cmd, robj **argv,
-                         int argc, struct getKeyRequestsResult *result) {
-    long long start, end;
-    /* BITPOS key bit [start [end] ], start or end may not exist.  */
-    if (argc <= 3) {
-        getKeyRequestsSingleKey(result,argv[1],SWAP_IN,0,cmd->flags,dbid);
-    } else if (argc == 4) {
-        if (getLongLongFromObject(argv[3],&start) != C_OK) return -1;
-
-        /* max size of bitmap is 512MB, last possible bit (equal to 2^32 - 1, UINT_MAX),
-         * start and end specify a byte index, UINT_MAX could cover the range. */
-        getKeyRequestsSingleKeyWithBitmapRange(dbid,cmd,argv,argc,
-                result,1,start,UINT_MAX);
-    } else {
-        if (getLongLongFromObject(argv[3],&start) != C_OK) return -1;
-        if (getLongLongFromObject(argv[4],&end) != C_OK) return -1;
-        getKeyRequestsSingleKeyWithBitmapRange(dbid,cmd,argv,argc,
-                result,1,start,end);
-    }
-    return 0;
-}
-
-int getKeyRequestsBitop(int dbid, struct redisCommand *cmd, robj **argv,
-                        int argc, struct getKeyRequestsResult *result) {
-    return getKeyRequestsOneDestKeyMultiSrcKeys(dbid, cmd, argv, argc, result, 2, 3, -1);
-}
-
-int getKeyRequestsBitField(int dbid, struct redisCommand *cmd, robj **argv,
-                         int argc, struct getKeyRequestsResult *result) {
-
-    UNUSED(argc);
-    getKeyRequestsSingleKey(result,argv[1],cmd->intention,cmd->intention_flags,cmd->flags,dbid);
-    return 0;
 }
 
 

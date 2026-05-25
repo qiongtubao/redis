@@ -46,6 +46,12 @@ static int hashSwapAnaOutSelectSubkeys(swapData *data, hashDataCtx *datactx,
     robj *subkeys;
     unsigned long long evict_memory = 0;
 
+    /* 验证 data->value 是否为有效的 hash 对象 */
+    serverAssert(data->value != NULL);
+    serverAssert(data->value->type == OBJ_HASH);
+    serverAssert(data->value->encoding == OBJ_ENCODING_ZIPLIST ||
+                 data->value->encoding == OBJ_ENCODING_HT);
+
     if (objectIsDataDirty(data->value)) { /* all subkeys might be dirty */
         select_type = SELECT_MAIN;
         subkeys = data->value;

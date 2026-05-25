@@ -537,6 +537,28 @@ void *setCreateOrMergeObject(swapData *data, void *decoded_, void *datactx) {
          * pass as swapIn param). */
         result = decoded;
         if (decoded) {
+            /* 防御性检查：如果 data->value 不为 NULL，说明数据状态不一致。
+             * 这可能发生在并发场景下，swap 请求开始时 data->value 为 NULL，
+             * 但在执行过程中被其他操作修改了。此时应该进入 merge 分支而不是 cold 分支。
+             * 为避免 object_meta->len 变成负数，跳过此处的 len 修改。 */
+            if (data->value != NULL) {
+                serverLog(LL_WARNING,
+                    "[swap] setCreateOrMergeObject: data->value not NULL in cold branch, "
+                    "key=%s, value_size=%d, decoded_size=%d, meta_len=%lld",
+                    (char*)data->key->ptr, setTypeSize(data->value),
+                    setTypeSize(decoded), swapDataObjectMeta(data)->len);
+                /* 进入 merge 分支处理 */
+                setTypeIterator *si;
+                sds subkey;
+                si = setTypeInitIterator(decoded);
+                while (NULL != (subkey = setTypeNextObject(si))) {
+                    setTypeAdd(data->value, subkey);
+                    sdsfree(subkey);
+                }
+                setTypeReleaseIterator(si);
+                decrRefCount(decoded);
+                return NULL;
+            }
             swapDataObjectMetaModifyLen(data,-setTypeSize(decoded));
         }
     } else {

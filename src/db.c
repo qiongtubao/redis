@@ -240,9 +240,16 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     /* new val inherit flag_persistent from old val,
      * since rocksdb persist data for the same key */
     val->persistent = old->persistent; // todo, dirty_meta,  dirty_data ... ...
+    /* 如果新旧对象类型不同，需要删除旧的 object_meta。
+     * 否则 object_meta->swap_type 会与新对象类型不匹配，
+     * 导致 swap 系统使用错误的处理函数。
+     * 注意：只删除不同类型的 meta，避免影响正在进行的 swap 操作。 */
+    if (old->type != val->type) {
+        dbDeleteMeta(db, key);
+    }
 #endif
-    /* Although the key is not really deleted from the database, we regard 
-    overwrite as two steps of unlink+add, so we still need to call the unlink 
+    /* Although the key is not really deleted from the database, we regard
+    overwrite as two steps of unlink+add, so we still need to call the unlink
     callback of the module. */
     moduleNotifyKeyUnlink(key,old);
     dictSetVal(db->dict, de, val);
