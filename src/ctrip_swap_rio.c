@@ -269,6 +269,16 @@ static void RIODoIterate(RIO *rio) {
     else rocksdb_iter_seek(iter, start, start_len);
     if (!rocksdb_iter_valid(iter)) goto end;
 
+    /* 反向扫描前缀越界修正: seek_for_prev(end) 可能定位到以 end 为前缀的更长 key
+     * (例如 end="xyz" 可能定位到 "xyzz"), 需要单次 prev() 修正 */
+    if (reverse && !prefix_match) {
+        rawkey = rocksdb_iter_key(iter, &klen);
+        if (rawkey && klen > end_len && memcmp(rawkey, end, end_len) == 0) {
+            rocksdb_iter_prev(iter);
+            if (!rocksdb_iter_valid(iter)) goto end;
+        }
+    }
+
     if (reverse && high_bound_exclude) {
         rawkey = rocksdb_iter_key(iter, &klen);
         if (prefix_match) {
