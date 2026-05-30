@@ -183,6 +183,7 @@ typedef struct range {
 #define KEYREQUEST_TYPE_SAMPLE 4
 #define KEYREQUEST_TYPE_BTIMAP_OFFSET  5
 #define KEYREQUEST_TYPE_BTIMAP_RANGE  6
+#define KEYREQUEST_TYPE_LEX  7  /* 字典序范围查询请求类型 */
 
 typedef struct argRewriteRequest {
   int mstate_idx; /* >=0 if current command is a exec, means index in mstate; -1 means req not in multi/exec */
@@ -227,6 +228,11 @@ typedef struct keyRequest{
       long long start;
       long long end;
     } br; /* bitmap range*/
+    struct {
+      zlexrangespec* rangespec;
+      int reverse;
+      int limit;
+    } zl; /* zset 字典序范围查询 */
   };
   argRewriteRequest arg_rewrite[2];
   swapCmdTrace *swap_cmd;
@@ -273,6 +279,8 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 void getKeyRequestsAttachSwapTrace(getKeyRequestsResult * result, swapCmdTrace *swap_cmd, int from_include, int to_exclude);
 
 void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level, MOVE robj *key, int arg_rewrite0, int arg_rewrite1, int num_ranges, MOVE range *ranges, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
+void getKeyRequestsAppendScoreResult(getKeyRequestsResult *result, int level, MOVE robj *key, MOVE zrangespec *spec, int reverse, int limit, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
+void getKeyRequestsAppendLexResult(getKeyRequestsResult *result, int level, MOVE robj *key, MOVE zlexrangespec *spec, int reverse, int limit, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
 void getKeyRequestsSingleKey(getKeyRequestsResult *result, MOVE robj *key, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
 int getKeyRequestsSingleKeyWithBitmapOffset(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, int key_index, int arg_idx_rewrite0, long offset);
 int getKeyRequestsSingleKeyWithBitmapRange(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, int key_index, long long start, long long end);
@@ -933,6 +941,7 @@ typedef struct zsetSwapData {
 
 #define ZSET_SWAP_CTX_TYPE_NONE 0
 #define ZSET_SWAP_CTX_TYPE_ZS 1
+#define ZSET_SWAP_CTX_TYPE_LEX 2  /* 字典序范围查询上下文类型 */
 
 typedef struct zsetDataCtx {
 	baseBigDataCtx bdc;
@@ -943,6 +952,11 @@ typedef struct zsetDataCtx {
       int reverse;
       int limit;
     } zs;
+    struct {
+      zlexrangespec* rangespec;
+      int reverse;
+      int limit;
+    } zl; /* zset 字典序范围查询上下文 */
   };
 
 } zsetDataCtx;
