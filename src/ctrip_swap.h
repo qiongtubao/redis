@@ -279,7 +279,7 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 void getKeyRequestsAttachSwapTrace(getKeyRequestsResult * result, swapCmdTrace *swap_cmd, int from_include, int to_exclude);
 
 void getKeyRequestsAppendRangeResult(getKeyRequestsResult *result, int level, MOVE robj *key, int arg_rewrite0, int arg_rewrite1, int num_ranges, MOVE range *ranges, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
-void getKeyRequestsAppendScoreResult(getKeyRequestsResult *result, int level, MOVE robj *key, MOVE zrangespec *spec, int reverse, int limit, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
+void getKeyRequestsAppendScoreResult(getKeyRequestsResult *result, int level, MOVE robj *key, int reverse, MOVE zrangespec *spec, int limit, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
 void getKeyRequestsAppendLexResult(getKeyRequestsResult *result, int level, MOVE robj *key, MOVE zlexrangespec *spec, int reverse, int limit, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
 void getKeyRequestsSingleKey(getKeyRequestsResult *result, MOVE robj *key, int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid);
 int getKeyRequestsSingleKeyWithBitmapOffset(int dbid, struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result, int key_index, int arg_idx_rewrite0, long offset);
