@@ -559,6 +559,153 @@ start_server {tags {"zset"}} {
                 assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
             }
 
+            test "ZRANGEBYLEX - cold zset partial swap" {
+                # 测试冷键部分 swap：ZRANGEBYLEX 只加载范围内的 member
+                create_default_lex_zset
+                r swap.evict zset
+                wait_key_cold r zset
+
+                # 闭区间查询
+                assert_equal {alpha bar cool} [r zrangebylex zset - \[cool]
+                assert_equal {bar cool down} [r zrangebylex zset \[bar \[down]
+                assert_equal {great hill omega} [r zrangebylex zset \[g +]
+
+                # 开区间查询
+                assert_equal {alpha bar} [r zrangebylex zset - (cool]
+                assert_equal {cool} [r zrangebylex zset (bar (down]
+
+                # 混合区间
+                assert_equal {} [r zrangebylex zset (az (b]
+                assert_equal {} [r zrangebylex zset (z +]
+            }
+
+            test "ZREVRANGEBYLEX - cold zset partial swap" {
+                # 测试冷键反向扫描
+                create_default_lex_zset
+                r swap.evict zset
+                wait_key_cold r zset
+
+                # 反向闭区间
+                assert_equal {cool bar alpha} [r zrevrangebylex zset \[cool -]
+                assert_equal {down cool bar} [r zrevrangebylex zset \[down \[bar]
+                assert_equal {omega hill great foo elephant down} [r zrevrangebylex zset + \[d]
+
+                # 反向开区间
+                assert_equal {bar alpha} [r zrevrangebylex zset (cool -]
+                assert_equal {cool} [r zrevrangebylex zset (down (bar]
+                assert_equal {omega hill} [r zrevrangebylex zset + (great]
+
+                # 反向混合区间
+                assert_equal {} [r zrevrangebylex zset \[elez \[elex]
+                assert_equal {} [r zrevrangebylex zset (hill (omega]
+            }
+
+            test "ZLEXCOUNT - cold zset partial swap" {
+                # 测试冷键计数
+                create_default_lex_zset
+                r swap.evict zset
+                wait_key_cold r zset
+
+                assert_equal 9 [r zlexcount zset - +]
+                assert_equal 0 [r zlexcount zset + -]
+                assert_equal 8 [r zlexcount zset \[bar +]
+                assert_equal 5 [r zlexcount zset \[bar \[foo]
+                assert_equal 4 [r zlexcount zset \[bar (foo]
+                assert_equal 4 [r zlexcount zset (bar \[foo]
+                assert_equal 3 [r zlexcount zset (bar (foo]
+                assert_equal 3 [r zlexcount zset \[ele \[h]
+                assert_equal 2 [r zlexcount zset (ele (great]
+            }
+
+            test "ZRANGEBYLEX with LIMIT - cold zset" {
+                # 测试冷键 LIMIT 参数
+                create_default_lex_zset
+                r swap.evict zset
+                wait_key_cold r zset
+
+                assert_equal {alpha bar} [r zrangebylex zset - \[cool LIMIT 0 2]
+                assert_equal {bar cool} [r zrangebylex zset - \[cool LIMIT 1 2]
+                assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 0 0]
+                assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 2 0]
+                assert_equal {bar} [r zrangebylex zset \[bar \[down LIMIT 0 1]
+                assert_equal {cool} [r zrangebylex zset \[bar \[down LIMIT 1 1]
+                assert_equal {bar cool down} [r zrangebylex zset \[bar \[down LIMIT 0 100]
+                assert_equal {omega hill great foo elephant} [r zrevrangebylex zset + \[d LIMIT 0 5]
+                assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
+            }
+
+            test "ZREMRANGEBYLEX - cold zset partial swap" {
+                # 测试冷键删除：swap in 范围内 member 后执行删除
+                create_default_lex_zset
+                r swap.evict zset
+                wait_key_cold r zset
+
+                # 删除闭区间
+                assert_equal 3 [r zremrangebylex zset \[bar \[down]
+                assert_equal {alpha elephant foo great hill omega} [r zrange zset 0 -1]
+
+                # 删除开区间
+                r swap.evict zset
+                wait_key_cold r zset
+                assert_equal 2 [r zremrangebylex zset (elephant (hill]
+                assert_equal {alpha elephant hill omega} [r zrange zset 0 -1]
+            }
+
+            test "BYLEX - prefix members edge case" {
+                # 测试前缀关系 member 不被误排除
+                r del zset_prefix
+                r zadd zset_prefix 0 abc 0 abcd 0 abcde 0 xyz
+                r swap.evict zset_prefix
+                wait_key_cold r zset_prefix
+
+                # 闭区间 [abc, abc] 应该只返回 abc
+                assert_equal {abc} [r zrangebylex zset_prefix \[abc \[abc]
+
+                # 闭区间 [abc, abcd] 应该返回 abc 和 abcd
+                assert_equal {abc abcd} [r zrangebylex zset_prefix \[abc \[abcd]
+
+                # 开区间 (abc, abcde) 应该返回 abcd
+                assert_equal {abcd} [r zrangebylex zset_prefix (abc (abcde]
+
+                # 反向扫描前缀边界
+                assert_equal {abcd abc} [r zrevrangebylex zset_prefix \[abcd \[abc]
+            }
+
+            test "BYLEX - empty member edge case" {
+                # 测试空 member 边界
+                r del zset_empty
+                r zadd zset_empty 0 "" 0 a 0 b
+                r swap.evict zset_empty
+                wait_key_cold r zset_empty
+
+                assert_equal {"" a b} [r zrangebylex zset_empty - +]
+                assert_equal {"" a} [r zrangebylex zset_empty - \[a]
+                assert_equal {""} [r zrangebylex zset_empty - \[]
+            }
+
+            test "BYLEX - cold vs warm consistency" {
+                # 验证冷键和温键返回结果一致
+                r del zset_compare
+                create_zset zset_compare {0 alpha 0 bar 0 cool 0 down 0 elephant}
+
+                # 温键结果
+                set warm_result [r zrangebylex zset_compare \[bar \[down]
+                set warm_rev [r zrevrangebylex zset_compare \[down \[bar]
+                set warm_count [r zlexcount zset_compare \[bar \[down]
+
+                # 冷键结果
+                r swap.evict zset_compare
+                wait_key_cold r zset_compare
+                set cold_result [r zrangebylex zset_compare \[bar \[down]
+                set cold_rev [r zrevrangebylex zset_compare \[down \[bar]
+                set cold_count [r zlexcount zset_compare \[bar \[down]
+
+                # 验证一致性
+                assert_equal $warm_result $cold_result
+                assert_equal $warm_rev $cold_rev
+                assert_equal $warm_count $cold_count
+            }
+
             test "ZRANGEBYLEX with invalid lex range specifiers - $encoding" {
                 assert_error "*not*string*" {r zrangebylex fooz foo bar}
                 assert_error "*not*string*" {r zrangebylex fooz \[foo bar}
