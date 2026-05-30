@@ -2128,6 +2128,17 @@ int getKeyRequestsZrangeGeneric(int dbid, struct redisCommand *cmd, robj **argv,
             getKeyRequestsAppendScoreResult(result, REQUEST_LEVEL_KEY, key, direction == ZRANGE_DIRECTION_REVERSE, spec, opt_offset + opt_limit,cmd->intention, cmd->intention_flags, cmd->flags, dbid);
         }
         break;
+    case ZRANGE_LEX:
+        {
+            zlexrangespec* spec = zmalloc(sizeof(zlexrangespec));
+            if (zslParseLexRange(minobj, maxobj, spec) != C_OK) {
+                decrRefCount(key);
+                zfree(spec);
+                return C_ERR;
+            }
+            getKeyRequestsAppendLexResult(result, REQUEST_LEVEL_KEY, key, spec, direction == ZRANGE_DIRECTION_REVERSE, opt_offset + opt_limit, cmd->intention, cmd->intention_flags, cmd->flags, dbid);
+        }
+        break;
     default:
         getKeyRequestsAppendSubkeyResult(result, REQUEST_LEVEL_KEY, key, 0, NULL, cmd->intention, cmd->intention_flags, cmd->flags, dbid);
         break;
