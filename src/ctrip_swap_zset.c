@@ -226,6 +226,26 @@ int zsetSwapAna(swapData *data, int thd, struct keyRequest *req,
                     *intention_flags = SWAP_EXEC_IN_DEL;
                 }
             }
+        } else if(req->type == KEYREQUEST_TYPE_LEX) {
+            /* 字典序范围查询: swap in DATA_CF 中 [min, max] 范围的 member */
+            datactx->type = ZSET_SWAP_CTX_TYPE_LEX;
+            datactx->zl.reverse = req->zl.reverse;
+            datactx->zl.limit = req->zl.limit;
+            datactx->zl.rangespec = req->zl.rangespec;
+            req->zl.rangespec = NULL;
+            *intention = SWAP_IN;
+            *intention_flags = 0;
+            if (cmd_intention_flags == SWAP_IN_DEL
+                || cmd_intention_flags & SWAP_IN_OVERWRITE) {
+                objectMeta *meta = swapDataObjectMeta(data);
+                if (meta->len == 0) {
+                    *intention = SWAP_DEL;
+                    *intention_flags = SWAP_FIN_DEL_SKIP;
+                } else {
+                    *intention = SWAP_IN;
+                    *intention_flags = SWAP_EXEC_IN_DEL;
+                }
+            }
         } else if (req->b.num_subkeys == 0) {
             if (cmd_intention_flags == SWAP_IN_DEL_MOCK_VALUE) {
                 /* DEL/UNLINK: Lazy delete current key. */
@@ -516,6 +536,25 @@ int zsetEncodeRange(struct swapData *data, int intention, void *datactx_, int *l
                                         swap_shared.emptystring->ptr, datactx->zs.rangespec->min);
             *end = zsetEncodeScoreKey(data->db, data->key->ptr, version,
                                           swap_shared.emptystring->ptr, datactx->zs.rangespec->max);
+        } else if (datactx->type == ZSET_SWAP_CTX_TYPE_LEX) {
+            /* 字典序范围查询: 全闭区间扫描 DATA_CF，不使用 EXCLUDE/PREFIX_MATCH flags */
+            *pcf = DATA_CF;
+            *limit = datactx->zl.limit;
+            *flags = 0;
+            if (datactx->zl.reverse) *flags |= ROCKS_ITERATE_REVERSE;
+
+            if (datactx->zl.rangespec->min == shared.minstring) {
+                *start = rocksEncodeDataRangeStartKey(data->db, data->key->ptr, version);
+            } else {
+                *start = rocksEncodeDataKey(data->db, data->key->ptr, version,
+                                            datactx->zl.rangespec->min);
+            }
+            if (datactx->zl.rangespec->max == shared.maxstring) {
+                *end = rocksEncodeDataRangeEndKey(data->db, data->key->ptr, version);
+            } else {
+                *end = rocksEncodeDataKey(data->db, data->key->ptr, version,
+                                          datactx->zl.rangespec->max);
+            }
         }
     } else {
         *pcf = DATA_CF;
@@ -841,6 +880,13 @@ void freeZsetSwapData(swapData *data_, void *datactx_) {
             if (datactx->zs.rangespec != NULL) {
                 zfree(datactx->zs.rangespec);
                 datactx->zs.rangespec = NULL;
+            }
+        break;
+        case ZSET_SWAP_CTX_TYPE_LEX:
+            if (datactx->zl.rangespec != NULL) {
+                zslFreeLexRange(datactx->zl.rangespec);
+                zfree(datactx->zl.rangespec);
+                datactx->zl.rangespec = NULL;
             }
         break;
 
