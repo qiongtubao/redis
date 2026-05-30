@@ -1110,6 +1110,11 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
         dst->zs.reverse = src->zs.reverse;
         dst->zs.limit = src->zs.limit;
         break;
+    case KEYREQUEST_TYPE_LEX:
+        dst->zl.rangespec = zlexrangespecdup(src->zl.rangespec);
+        dst->zl.reverse = src->zl.reverse;
+        dst->zl.limit = src->zl.limit;
+        break;
     case KEYREQUEST_TYPE_SAMPLE:
         dst->sp.count = src->sp.count;
         break;
@@ -1161,6 +1166,12 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
         dst->zs.reverse = src->zs.reverse;
         dst->zs.limit = src->zs.limit;
         break;
+    case KEYREQUEST_TYPE_LEX:
+        dst->zl.rangespec = src->zl.rangespec;
+        src->zl.rangespec = NULL;
+        dst->zl.reverse = src->zl.reverse;
+        dst->zl.limit = src->zl.limit;
+        break;
     case KEYREQUEST_TYPE_SAMPLE:
         dst->sp.count = src->sp.count;
         break;
@@ -1206,6 +1217,13 @@ void keyRequestDeinit(keyRequest *key_request) {
         if (key_request->zs.rangespec != NULL) {
             zfree(key_request->zs.rangespec);
             key_request->zs.rangespec = NULL;
+        }
+        break;
+    case KEYREQUEST_TYPE_LEX:
+        if (key_request->zl.rangespec != NULL) {
+            zslFreeLexRange(key_request->zl.rangespec);
+            zfree(key_request->zl.rangespec);
+            key_request->zl.rangespec = NULL;
         }
         break;
     case KEYREQUEST_TYPE_SAMPLE:
@@ -1293,6 +1311,25 @@ void getKeyRequestsAppendScoreResult(getKeyRequestsResult *result, int level,
     key_request->zs.reverse = reverse;
     key_request->zs.rangespec = rangespec;
     key_request->zs.limit = limit;
+    key_request->cmd_intention = cmd_intention;
+    key_request->cmd_intention_flags = cmd_intention_flags;
+    key_request->cmd_flags = cmd_flags;
+    key_request->dbid = dbid;
+    key_request->trace = NULL;
+    key_request->deferred = 0;
+}
+
+void getKeyRequestsAppendLexResult(getKeyRequestsResult *result, int level,
+        robj *key, zlexrangespec* rangespec, int reverse, int limit,
+        int cmd_intention, int cmd_intention_flags, uint64_t cmd_flags, int dbid) {
+    expandKeyRequests(result);
+    keyRequest *key_request = &result->key_requests[result->num++];
+    key_request->level = level;
+    key_request->key = key;
+    key_request->type = KEYREQUEST_TYPE_LEX;
+    key_request->zl.reverse = reverse;
+    key_request->zl.rangespec = rangespec;
+    key_request->zl.limit = limit;
     key_request->cmd_intention = cmd_intention;
     key_request->cmd_intention_flags = cmd_intention_flags;
     key_request->cmd_flags = cmd_flags;
