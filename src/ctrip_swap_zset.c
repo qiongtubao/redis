@@ -537,23 +537,60 @@ int zsetEncodeRange(struct swapData *data, int intention, void *datactx_, int *l
             *end = zsetEncodeScoreKey(data->db, data->key->ptr, version,
                                           swap_shared.emptystring->ptr, datactx->zs.rangespec->max);
         } else if (datactx->type == ZSET_SWAP_CTX_TYPE_LEX) {
-            /* 字典序范围查询: 全闭区间扫描 DATA_CF，不使用 EXCLUDE/PREFIX_MATCH flags */
+            /* 字典序范围查询: 扫描 DATA_CF。
+             * 利用 RocksDB [start, end) 左闭右开特性，通过 subkey 尾部追加 \x00
+             * 来构造最紧凑边界，无需 next() 跳过。
+             *
+             * 字节序: 对任意字符串 S（含空串），S < S+\x00，且 \x00 是最小非零字节，
+             * 创建最紧凑上界，避免 [val, val\xFF) 过度包含 val\x01~val\xFE 等 key。
+             *
+             * 边界编码规则:
+             *   [val (闭): start=subkey(val)     → Seek 定位 val,   包含 val
+             *   (val (开): start=subkey(val\x00) → Seek 跳过 val
+             *   [val (闭): end  =subkey(val\x00) → [start,val\x00) 包含 val
+             *   (val (开): end  =subkey(val)     → [start,val)   排除 val
+             *
+             * 反向扫描 exclusive max 仍需 HIGH_BOUND_EXCLUDE:
+             *   seek_for_prev(val) 停在 val 上，需 prev() 跳过。 */
             *pcf = DATA_CF;
             *limit = datactx->zl.limit;
             *flags = 0;
             if (datactx->zl.reverse) *flags |= ROCKS_ITERATE_REVERSE;
 
+            /* 下界: 构造 start key */
             if (datactx->zl.rangespec->min == shared.minstring) {
                 *start = rocksEncodeDataRangeStartKey(data->db, data->key->ptr, version);
+            } else if (datactx->zl.rangespec->minex) {
+                /* 开区间 (val: start = val + \x00，Seek 天然跳过 val */
+                sds min_sentinel = sdscatlen(
+                    sdsdup(datactx->zl.rangespec->min), "\x00", 1);
+                *start = rocksEncodeDataKey(data->db, data->key->ptr, version,
+                                            min_sentinel);
+                sdsfree(min_sentinel);
             } else {
                 *start = rocksEncodeDataKey(data->db, data->key->ptr, version,
                                             datactx->zl.rangespec->min);
             }
+
+            /* 上界: 构造 end key */
             if (datactx->zl.rangespec->max == shared.maxstring) {
                 *end = rocksEncodeDataRangeEndKey(data->db, data->key->ptr, version);
-            } else {
+            } else if (datactx->zl.rangespec->maxex) {
+                /* 开区间 (val: end = val
+                 * RocksDB [start, end) 天然排除 end，正向扫描无需 flag。
+                 * 反向扫描: seek_for_prev(end) 停在 end，需 prev() 跳过。 */
                 *end = rocksEncodeDataKey(data->db, data->key->ptr, version,
                                           datactx->zl.rangespec->max);
+                if (datactx->zl.reverse)
+                    *flags |= ROCKS_ITERATE_HIGH_BOUND_EXCLUDE;
+            } else {
+                /* 闭区间 [val: end = val + \x00
+                 * 最紧凑上界：仅 val 落在 [val, val\x00) 区间内 */
+                sds max_sentinel = sdscatlen(
+                    sdsdup(datactx->zl.rangespec->max), "\x00", 1);
+                *end = rocksEncodeDataKey(data->db, data->key->ptr, version,
+                                          max_sentinel);
+                sdsfree(max_sentinel);
             }
         }
     } else {
@@ -777,9 +814,9 @@ int zsetSwapDel(swapData *data, void *datactx_, int del_skip) {
     }
 }
 
-/* Decoded moved back by exec to zsetSwapData */
-void *zsetCreateOrMergeObject(swapData *data, void *decoded_, void *datactx) {
+void *zsetCreateOrMergeObject(swapData *data, void *decoded_, void *datactx_) {
     robj *result, *decoded = (robj*)decoded_;
+    zsetDataCtx *datactx = (zsetDataCtx*)datactx_;
     UNUSED(datactx);
     serverAssert(decoded == NULL || decoded->type == OBJ_ZSET);
 

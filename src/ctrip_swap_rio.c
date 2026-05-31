@@ -322,8 +322,11 @@ static void RIODoIterate(RIO *rio) {
         if (bound) {
             int cmp_result = memcmp(rawkey, bound, MIN(bound_len, klen));
             if (0 == cmp_result) {
-                if (!prefix_match && bound_len != klen) cmp_result = klen > bound_len;
-                else if (bound_exclude) break;
+                if (!prefix_match && bound_len != klen) {
+                    /* 字典序比较: 当共同前缀匹配但长度不同时，
+                     * 较长的 key 在字典序上更大（有额外字符） */
+                    cmp_result = klen > bound_len ? 1 : -1;
+                } else if (bound_exclude) break;
             }
             if ((reverse && cmp_result < 0) || (!reverse && cmp_result > 0)) break;
         }
