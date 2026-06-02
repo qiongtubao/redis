@@ -417,6 +417,8 @@ void debugCommand(client *c) {
 "    Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key>",
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
+"GTID-GAPLOG-BENCH <start_gno> <end_gno>",
+"    Benchmark backlog copy and RESP parsing for GTID gap log.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
 "LUA-ALWAYS-REPLICATE-COMMANDS <0|1>",
@@ -944,6 +946,30 @@ NULL
         server.swap_txid = value;
         addReply(c,shared.ok);
 #endif
+    } else if (!strcasecmp(c->argv[1]->ptr,"gtid-gaplog-bench") && c->argc == 4) {
+        long long start_gno, end_gno;
+        if (!server.gtid_enabled) {
+            addReplyError(c, "GTID is not enabled");
+            return;
+        }
+        if (server.gtid_gap_log == NULL) {
+            addReplyError(c, "GTID gaplog is not enabled");
+            return;
+        }
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &start_gno, NULL) != C_OK)
+            return;
+        if (getLongLongFromObjectOrReply(c, c->argv[3], &end_gno, NULL) != C_OK)
+            return;
+        if (start_gno < 1 || end_gno < start_gno) {
+            addReplyError(c, "Invalid gno range");
+            return;
+        }
+        gtidSet *bench_set = gtidSetNew();
+        gtidSetAdd(bench_set, server.uuid, server.uuid_len, start_gno, end_gno);
+        resetGtidGapLog(server.gtid_gap_log);
+        saveGapLogFromGtidSet(bench_set);
+        gtidSetFree(bench_set);
+        addReply(c, shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
