@@ -2418,6 +2418,8 @@ struct redisServer {
     long long gtid_ignored_cmd_count;
     long long gtid_executed_cmd_count;
     long long gtid_sync_stat[GTID_SYNC_TYPES];
+    int gtid_gaplog_enabled;
+    gtidGaplog* gtid_gap_log;
     /* importing mode */
     mstime_t importing_end_time;  /* in milliseconds */
     int importing_expire_enabled; 
@@ -2752,6 +2754,9 @@ struct redisCommand {
                              * (not the fullname), and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;
     struct RedisModuleCommand *module_cmd; /* A pointer to the module command data (NULL if native command) */
+#ifdef ENABLE_CMDPARSE
+    void (*cmdparse_parse)(int dbid, struct redisCommand *cmd, robj **argv, int argc, void *ctx, cmdParseOnKeyFn on_key);
+#endif
 };
 
 struct redisError {
