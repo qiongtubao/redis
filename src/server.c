@@ -3701,10 +3701,10 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
     serverAssert(!(isPausedActions(PAUSE_ACTION_REPLICA) &&
                    (!server.client_pause_in_transaction)));
     propagateArgs pargs;
-    propagateArgsInit(&pargs,dbid,argv,argc);
+    propagateArgsInit(&pargs,NULL,dbid,argv,argc);
     propagateArgsPrepareToFeed(&pargs);
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
-        ctrip_feedAppendOnlyFile(pargs.orig_dbid,pargs.argv,pargs.argc);
+        ctrip_feedAppendOnlyFile(NULL,pargs.orig_dbid,pargs.argv,pargs.argc);
     if (target & PROPAGATE_REPL)
         ctrip_replicationFeedSlaves(server.slaves, pargs.orig_dbid,pargs.argv,
                 pargs.argc,pargs.uuid,pargs.uuid_len,pargs.gno,pargs.offset);

@@ -1953,6 +1953,7 @@ void freeClient(client *c) {
             replicationGetSlaveName(c));
     }
 
+
     /* Free the query buffer */
     if (c->io_flags & CLIENT_IO_REUSABLE_QUERYBUFFER)
         resetReusableQueryBuf(c);
@@ -2980,7 +2981,7 @@ void commandProcessed(client *c) {
                 sds repr = gtid_repr->ptr;
                 uuid = uuidGnoDecode(repr,sdslen(repr),&gno,&uuid_len);
             }
-            ctrip_replicationFeedSlavesFromMasterStream(c->querybuf+c->repl_applied,applied, uuid,uuid_len,gno,server.master_repl_offset+1);
+            ctrip_replicationFeedSlavesFromMasterStream(NULL, c->querybuf+c->repl_applied,applied, uuid,uuid_len,gno,server.master_repl_offset+1);
             c->repl_applied += applied;
         }
     }

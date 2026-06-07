@@ -2672,7 +2672,7 @@ static int updateSwapAbsentCacheEnabled(const char **err) {
 
 static int updateReplBacklogSize(const char **err) {
     UNUSED(err);
-    ctrip_resizeReplicationBacklog();
+    ctrip_resizeReplicationBacklog(0);
     return 1;
 }
 

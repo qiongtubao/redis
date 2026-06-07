@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include <string.h>
+#include <sys/time.h>
 #include "zmalloc.h"
 #include "redisassert.h"
 #include "config.h"
@@ -2226,12 +2227,22 @@ void distributeTest(int lowestTime,
         ebAdd(&eb, &myEbucketsType, item, expireTime);
     }
     gettimeofday(&timeAfter, NULL);
-    timersub(&timeAfter, &timeBefore, &timeCreation);
+    timeCreation.tv_sec = timeAfter.tv_sec - timeBefore.tv_sec;
+    timeCreation.tv_usec = timeAfter.tv_usec - timeBefore.tv_usec;
+    if (timeCreation.tv_usec < 0) {
+        timeCreation.tv_sec--;
+        timeCreation.tv_usec += 1000000;
+    }
 
     gettimeofday(&timeBefore, NULL);
     ebExpireDryRun(eb, &myEbucketsType, 0xFFFFFFFFFFFF);  /* expire dry-run all */
     gettimeofday(&timeAfter, NULL);
-    timersub(&timeAfter, &timeBefore, &timeDryRun);
+    timeDryRun.tv_sec = timeAfter.tv_sec - timeBefore.tv_sec;
+    timeDryRun.tv_usec = timeAfter.tv_usec - timeBefore.tv_usec;
+    if (timeDryRun.tv_usec < 0) {
+        timeDryRun.tv_sec--;
+        timeDryRun.tv_usec += 1000000;
+    }
 
     if (printStat) {
         _ebPrint(eb, &myEbucketsType, zmalloc_used_memory() - usedMemBefore, 0);
@@ -2275,7 +2286,12 @@ void distributeTest(int lowestTime,
     }
     ebDestroy(&eb, &myEbucketsType, NULL);
     gettimeofday(&timeAfter, NULL);
-    timersub(&timeAfter, &timeBefore, &timeDestroy);
+    timeDestroy.tv_sec = timeAfter.tv_sec - timeBefore.tv_sec;
+    timeDestroy.tv_usec = timeAfter.tv_usec - timeBefore.tv_usec;
+    if (timeDestroy.tv_usec < 0) {
+        timeDestroy.tv_sec--;
+        timeDestroy.tv_usec += 1000000;
+    }
 
     if (printStat) {
         printf("Time elapsed ebuckets creation     : %ld.%06ld\n", (long int)timeCreation.tv_sec, (long int)timeCreation.tv_usec);

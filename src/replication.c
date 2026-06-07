@@ -46,6 +46,7 @@ void replicationSendAck(void);
 int replicaPutOnline(client *slave);
 void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
+#include "xredis_gtid_adaptation_version.h"
 static void rdbChannelFullSyncWithMaster(connection *conn);
 static int rdbChannelAbort(void);
 static void rdbChannelBufferReplData(connection *conn);
