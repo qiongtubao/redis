@@ -48,6 +48,17 @@ int je_get_defrag_hint(void* ptr);
 void defragDictBucketCallback(void *privdata, dictEntry **bucketref);
 dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged);
 
+#ifdef ENABLE_SWAP
+/* Return 1 if the key is locked by an in-progress swap request and should not
+ * be defragmented. Same pattern as activeExpireCycleTryExpire in expire.c. */
+static int activeDefragKeyLocked(redisDb *db, sds key) {
+    robj *keyobj = createStringObject(key,sdslen(key));
+    int locked = lockWouldBlock(server.swap_txid++, db, keyobj);
+    decrRefCount(keyobj);
+    return locked;
+}
+#endif
+
 /* Defrag helper for generic allocations.
  *
  * returns NULL in case the allocation wasn't moved.
@@ -830,6 +841,16 @@ long defragKey(redisDb *db, dictEntry *de) {
         uint64_t hash = dictGetHash(db->dict, de->key);
         replaceSatelliteDictKeyPtrAndOrDefragDictEntry(db->expires, keysds, newsds, hash, &defragged);
     }
+#ifdef ENABLE_SWAP
+    if (newsds && dictSize(db->meta)) {
+        uint64_t hash = dictGetHash(db->dict, de->key);
+        replaceSatelliteDictKeyPtrAndOrDefragDictEntry(db->meta, keysds, newsds, hash, &defragged);
+    }
+    if (newsds && dictSize(db->dirty_subkeys)) {
+        uint64_t hash = dictGetHash(db->dict, de->key);
+        replaceSatelliteDictKeyPtrAndOrDefragDictEntry(db->dirty_subkeys, keysds, newsds, hash, &defragged);
+    }
+#endif
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
@@ -889,7 +910,15 @@ long defragKey(redisDb *db, dictEntry *de) {
 
 /* Defrag scan callback for the main db dictionary. */
 void defragScanCallback(void *privdata, const dictEntry *de) {
-    long defragged = defragKey((redisDb*)privdata, (dictEntry*)de);
+    redisDb *db = (redisDb*)privdata;
+#ifdef ENABLE_SWAP
+    if (activeDefragKeyLocked(db, dictGetKey(de))) {
+        server.stat_active_defrag_key_misses++;
+        server.stat_active_defrag_scanned++;
+        return;
+    }
+#endif
+    long defragged = defragKey(db, (dictEntry*)de);
     server.stat_active_defrag_hits += defragged;
     if(defragged)
         server.stat_active_defrag_key_hits++;
@@ -1005,6 +1034,18 @@ int defragLaterStep(redisDb *db, long long endtime) {
             defrag_later_current_key = head->value;
             defrag_later_cursor = 0;
         }
+
+#ifdef ENABLE_SWAP
+        /* If the key is locked by swap, rotate it to the tail and try the next. */
+        if (activeDefragKeyLocked(db, defrag_later_current_key)) {
+            listNode *head = listFirst(db->defrag_later);
+            listDelNode(db->defrag_later, head);
+            listAddNodeTail(db->defrag_later, head->value);
+            defrag_later_cursor = 0;
+            defrag_later_current_key = NULL;
+            continue;
+        }
+#endif
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
         dictEntry *de = dictFind(db->dict, defrag_later_current_key);
